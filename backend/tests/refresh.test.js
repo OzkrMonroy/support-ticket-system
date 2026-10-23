@@ -22,7 +22,7 @@ test('refresh tokens are hashed, rotated atomically, and rejected when unusable'
     const response = await fetch(`http://localhost:32103/api/auth/${path}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
-    return { status: response.status, body: await response.json() };
+    return { status: response.status, body: response.status === 204 ? await response.text() : await response.json() };
   };
   const login = () => request('login', { email: user.email, password });
   const refresh = (token) => request('refresh', { refreshToken: token });
@@ -106,6 +106,33 @@ test('refresh tokens are hashed, rotated atomically, and rejected when unusable'
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{',
       });
       assert.equal(result.status, 400);
+    });
+    await t.test('logout is idempotent, prevents renewal, and preserves other sessions', async () => {
+      const initial = await login();
+      const other = await login();
+      const token = initial.body.refreshToken;
+      const completed = { status: 204, body: '' };
+      assert.deepEqual(await request('logout', { refreshToken: token }), completed);
+      const revoked = await prisma.refreshSession.findUniqueOrThrow({ where: { tokenHash: hash(token) } });
+      assert.ok(revoked.revokedAt);
+      assert.deepEqual(await refresh(token), unauthorized);
+      assert.deepEqual(await request('logout', { refreshToken: token }), completed);
+      const repeated = await prisma.refreshSession.findUniqueOrThrow({ where: { id: revoked.id } });
+      assert.deepEqual(repeated.revokedAt, revoked.revokedAt);
+      assert.deepEqual(await request('logout', { refreshToken: 'unknown-logout-token' }), completed);
+      assert.equal(jwt.verify(initial.body.accessToken, secret).id, user.id);
+      assert.equal((await refresh(other.body.refreshToken)).status, 200);
+    });
+
+    await t.test('logout rejects missing and invalid refresh token fields', async () => {
+      for (const body of [{}, { refreshToken: null }, { refreshToken: 42 },
+        { refreshToken: [] }, { refreshToken: {} }, { refreshToken: '' }, { refreshToken: ' ' }, null]) {
+        const result = await request('logout', body);
+        assert.equal(result.status, 400);
+        assert.deepEqual(result.body, {
+          message: body === null ? 'Invalid JSON body.' : 'Refresh token is required and must be a string.',
+        });
+      }
     });
   } finally {
     if (server.exitCode === null && server.signalCode === null) {

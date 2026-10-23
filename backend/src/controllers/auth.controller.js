@@ -89,3 +89,20 @@ export async function refresh(req, res) {
     return res.status(500).json({ message: 'Unable to refresh access token.' });
   }
 }
+
+export async function logout(req, res) {
+  const { refreshToken } = req.body ?? {};
+  if (typeof refreshToken !== 'string' || !refreshToken.trim()) {
+    return res.status(400).json({ message: 'Refresh token is required and must be a string.' });
+  }
+
+  try {
+    await prisma.refreshSession.updateMany({
+      where: { tokenHash: hashToken(refreshToken), revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return res.status(204).end();
+  } catch {
+    return res.status(500).json({ message: 'Unable to log out.' });
+  }
+}
