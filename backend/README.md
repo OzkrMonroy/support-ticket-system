@@ -1,6 +1,6 @@
 # Support Ticket System
 
-University project for managing technical support tickets. The backend uses Node.js, Express, JavaScript ESM, PostgreSQL 17, and Prisma 6.19.3. It provides a health endpoint and user login with a short-lived access JWT. Ticket operations, Angular, and RabbitMQ are pending later tasks.
+University project for managing technical support tickets. The backend uses Node.js, Express, JavaScript ESM, PostgreSQL 17, and Prisma 6.19.3. It provides a health endpoint, login with short-lived access JWTs, refresh-token rotation, logout, administrator account management, and own-profile retrieval. Ticket operations, Angular, and RabbitMQ are pending later tasks.
 
 ## Prerequisites
 
@@ -88,9 +88,21 @@ curl -i http://localhost:3000/api/health
 
 Expected: HTTP `200` with `{"status":"ok"}`. If `PORT` changes, use that port in the URL. This endpoint checks the HTTP server only; it does not check database availability.
 
+## API access and validation
+
+Protected endpoints require `Authorization: Bearer <accessToken>`. Authentication verifies the HS256 JWT and its expiration, then queries the database on every protected request. Missing or inactive accounts receive 401. Authorization uses the account's current database role; authenticated non-administrators receive 403 on administrator-only endpoints. Database authentication failures return a generic 500 response. Deactivation blocks login, refresh, and protected endpoints even with a previously issued access token.
+
+Zod validates request fields and UUID parameters. Validation failures return HTTP 400 with one message per field, for example:
+
+```json
+{"message":"Validation failed.","errors":{"email":"Invalid email address."}}
+```
+
+Malformed JSON returns 400 with `{"message":"Invalid JSON body."}` before field validation. Other errors use a simple `message` response. On protected user routes, authentication and administrator authorization precede field validation.
+
 ## User login
 
-Send `POST http://localhost:3000/api/auth/login` with `Content-Type: application/json` and a body containing string fields `email` and `password`. Use the administrator credentials configured when the seed first created the user, or another existing active user.
+Send `POST http://localhost:3000/api/auth/login` with `Content-Type: application/json` and a body containing string fields `email` and `password`. Use the administrator credentials configured when the seed first created the user, or another existing active user. Email must have a basic valid format and is looked up exactly as supplied (no trimming or lowercasing at login); the password must contain a non-whitespace character and is not transformed.
 
 ```json
 {"email":"admin@example.com","password":"replace-with-your-local-password"}
@@ -112,7 +124,19 @@ Only `CLIENT` and `TECHNICIAN` roles are accepted. Name, email, password, and ro
 
 Success returns HTTP 201 with `id`, `name`, `email`, `role`, and `isActive` (default `true`). Invalid input returns 400, missing/invalid/expired access tokens return 401, authenticated non-administrators receive 403, and duplicate normalized emails return 409. Unexpected database failures return a generic 500 response. New users can log in using their normalized email and original password. Administrator creation remains in the seed script.
 
-Authorization uses the signed access token's role until token expiration; it does not query current account status or role on each request.
+## List users as administrator
+
+Send `GET http://localhost:3000/api/users` with an administrator Bearer access token. Success returns HTTP 200 with an array of users containing only `id`, `name`, `email`, `role`, and `isActive`, ordered by creation date ascending and then ID. Password hashes and sessions are excluded. No pagination, filtering, or search is implemented.
+
+## Deactivate users as administrator
+
+Send `PATCH http://localhost:3000/api/users/<id>/deactivate` with an administrator Bearer access token; no request body is required. Success returns HTTP 200 with `id`, `name`, `email`, `role`, and `isActive: false`. Repeated deactivation succeeds and preserves the record.
+
+Self-deactivation returns 403, an unknown valid UUID returns 404, and a malformed UUID returns 400 with `errors.id`. Missing/invalid authentication returns 401 and non-administrators receive 403 before UUID validation. Unexpected database failures return a generic 500 response. Deactivation prevents login, refresh, and protected access; it does not delete the user or session records. Reactivation, editing, and deletion are not implemented.
+
+## View own profile
+
+Send `GET http://localhost:3000/api/users/me` with a Bearer access token for any active `ADMIN`, `CLIENT`, or `TECHNICIAN`. Success returns HTTP 200 with only `id`, `name`, `email`, and `role`, read from the current database record. The identity comes from authentication; query parameters cannot select another user. Missing/invalid/expired tokens or missing/inactive accounts return 401; unexpected database failures return a generic 500 response.
 
 ## Refresh access tokens
 
@@ -140,7 +164,7 @@ Send `POST http://localhost:3000/api/auth/logout` with `Content-Type: applicatio
 
 A valid, already revoked, or unknown token returns HTTP 204 with no response body. Missing, empty, or non-string tokens return 400. Database failures return a generic 500 response. Logout revokes only the matching session and does not change its existing revocation timestamp on repeated requests. Other sessions for the same user remain usable.
 
-After logout, exchanging that refresh token at `/api/auth/refresh` returns 401. Already issued access JWTs remain valid until they expire (15 minutes); access-token blacklisting, logout on all devices, and automatic session cleanup are not implemented. If a refresh token has already rotated, use its current replacement to log out the current session.
+After logout, exchanging that refresh token at `/api/auth/refresh` returns 401. For otherwise active accounts, already issued access JWTs remain valid until they expire (15 minutes); access-token blacklisting, logout on all devices, and automatic session cleanup are not implemented. If a refresh token has already rotated, use its current replacement to log out the current session.
 
 ## Connect with TablePlus
 
@@ -155,7 +179,7 @@ Create a PostgreSQL connection with host `localhost`, port from `POSTGRES_PORT`,
 
 ## Checks
 
-Integration tests use Node's built-in test runner to verify health, the administrator seed, login, refresh rotation, logout, and administrator-only user creation. Start PostgreSQL, apply migrations, and configure `ADMIN_*` first. Tests use the configured database and leave the seeded administrator in place. The password in `.env` must match the seeded administrator. HTTP tests temporarily use ports `32101`, `32102`, `32103`, and `32104` and supply their own signing secrets. Login and refresh fixtures use unique emails; their users and sessions are removed after the test. The administrator login test removes only the session it creates.
+Integration tests use Node's built-in test runner to verify health, the administrator seed, login, refresh rotation, logout, administrator-only user creation/listing/deactivation, current-account authorization, own-profile retrieval, and field validation. Start PostgreSQL, apply migrations, and configure `ADMIN_*` first. Tests use the configured database and leave the seeded administrator in place. The password in `.env` must match the seeded administrator. HTTP tests temporarily use ports `32101`, `32102`, `32103`, and `32104` and supply their own signing secrets. Login and refresh fixtures use unique emails; their users and sessions are removed after the test. The administrator login test removes only the session it creates.
 
 From `backend/`:
 
@@ -175,4 +199,4 @@ Use TablePlus to confirm one administrator row for the configured email, role `A
 - **Missing tables or Prisma Client:** run `npm run prisma:generate` and `npm run prisma:deploy` from `backend/`.
 - **Seed configuration missing:** run the seed from `backend/` and check all three `ADMIN_*` variables in its `.env`.
 
-Implementation details are recorded in [TASK-01 notes](../docs/implementation/TASK-01.md), [HU-01 notes](../docs/implementation/HU-01.md), [HU-02 notes](../docs/implementation/HU-02.md), and [HU-03 notes](../docs/implementation/HU-03.md).
+Implementation details are recorded in [TASK-01 notes](../docs/implementation/TASK-01.md), [HU-01 notes](../docs/implementation/HU-01.md), [HU-02 notes](../docs/implementation/HU-02.md), [HU-03 notes](../docs/implementation/HU-03.md), [HU-04 notes](../docs/implementation/HU-04.md), [HU-05 notes](../docs/implementation/HU-05.md), [HU-06 notes](../docs/implementation/HU-06.md), and [TASK-02 notes](../docs/implementation/TASK-02.md). See also the [project overview](../docs/PROJECT.md), [roadmap](../docs/ROADMAP.md), and [architecture](../docs/ARCHITECTURE.md).
