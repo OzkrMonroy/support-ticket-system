@@ -31,11 +31,7 @@ function createRefreshToken(userId) {
 }
 
 export async function login(req, res) {
-  const { email, password } = req.body ?? {};
-  if (typeof email !== 'string' || !email.trim() ||
-      typeof password !== 'string' || !password.trim()) {
-    return res.status(400).json({ message: 'Email and password are required strings.' });
-  }
+  const { email, password } = req.body;
 
   try {
     const user = await prisma.user.findUnique({ where: { email } });
@@ -57,10 +53,7 @@ export async function login(req, res) {
 }
 
 export async function refresh(req, res) {
-  const { refreshToken } = req.body ?? {};
-  if (typeof refreshToken !== 'string' || !refreshToken.trim()) {
-    return res.status(400).json({ message: 'Refresh token is required and must be a string.' });
-  }
+  const { refreshToken } = req.body;
 
   try {
     const tokens = await prisma.$transaction(async (tx) => {
@@ -91,10 +84,7 @@ export async function refresh(req, res) {
 }
 
 export async function logout(req, res) {
-  const { refreshToken } = req.body ?? {};
-  if (typeof refreshToken !== 'string' || !refreshToken.trim()) {
-    return res.status(400).json({ message: 'Refresh token is required and must be a string.' });
-  }
+  const { refreshToken } = req.body;
 
   try {
     await prisma.refreshSession.updateMany({

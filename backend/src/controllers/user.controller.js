@@ -21,19 +21,12 @@ export async function getOwnProfile(req, res) {
 }
 
 export async function createUser(req, res) {
-  const { name, email, password, role } = req.body ?? {};
-  if (typeof name !== 'string' || !name.trim() ||
-      typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ||
-      typeof password !== 'string' || !password.trim() ||
-      Buffer.byteLength(password, 'utf8') > 72 ||
-      !['CLIENT', 'TECHNICIAN'].includes(role)) {
-    return res.status(400).json({ message: 'Valid name, email, password (maximum 72 UTF-8 bytes), and role (CLIENT or TECHNICIAN) are required.' });
-  }
+  const { name, email, password, role } = req.body;
 
   try {
     const user = await prisma.user.create({
       data: {
-        name: name.trim(), email: email.trim().toLowerCase(),
+        name, email,
         passwordHash: await bcrypt.hash(password, 12), role,
       },
       select: publicFields,

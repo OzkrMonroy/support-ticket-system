@@ -88,6 +88,12 @@ test('login validates requests, credentials, active status, roles, and signed to
       }
     });
 
+    await t.test('malformed email returns a field error', async () => {
+      assert.deepEqual(await request({ email: 'invalid', password }), {
+        status: 400, body: { message: 'Validation failed.', errors: { email: 'Invalid email address.' } },
+      });
+    });
+
     await t.test('missing fields, invalid types, and malformed JSON return 400', async () => {
       for (const body of [{}, { email: 'a' }, { password },
         { email: 42, password }, { email: 'a', password: [] },

@@ -174,14 +174,15 @@ test('administrators create, list, and deactivate users with protected access', 
       assert.deepEqual(listed.body.find((user) => user.id === target.id), result.body);
     });
 
-    await t.test('self-deactivation is forbidden and unknown or malformed IDs return 404', async () => {
+    await t.test('self-deactivation is forbidden, unknown IDs return 404, and malformed IDs return 400', async () => {
       for (const id of [admin.id, admin.id.toUpperCase()]) {
         assert.equal((await request(`users/${id}/deactivate`, {}, authorization, 'PATCH')).status, 403);
       }
       assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: admin.id } })).isActive, true);
-      for (const id of [randomUUID(), 'invalid-id']) {
-        assert.equal((await request(`users/${id}/deactivate`, {}, authorization, 'PATCH')).status, 404);
-      }
+      assert.equal((await request(`users/${randomUUID()}/deactivate`, {}, authorization, 'PATCH')).status, 404);
+      assert.deepEqual(await request('users/not-a-uuid/deactivate', {}, authorization, 'PATCH'), {
+        status: 400, body: { message: 'Validation failed.', errors: { id: 'User ID must be a valid UUID.' } },
+      });
     });
 
     await t.test('missing fields, invalid types, unsupported roles, and oversized passwords return 400', async () => {
@@ -197,6 +198,12 @@ test('administrators create, list, and deactivate users with protected access', 
       for (const body of invalid) {
         assert.equal((await request('users', body, authorization)).status, 400);
       }
+      assert.deepEqual(await request('users', { ...valid, email: 'invalid', role: 'ADMIN', password: 'é'.repeat(37) }, authorization), {
+        status: 400, body: { message: 'Validation failed.', errors: {
+          email: 'Invalid email address.', role: 'Role must be CLIENT or TECHNICIAN.',
+          password: 'Password must not exceed 72 UTF-8 bytes.',
+        } },
+      });
       assert.equal(await prisma.user.count({ where: { email: valid.email } }), 0);
     });
   } finally {

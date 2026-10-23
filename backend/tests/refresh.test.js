@@ -130,7 +130,11 @@ test('refresh tokens are hashed, rotated atomically, and rejected when unusable'
         const result = await request('logout', body);
         assert.equal(result.status, 400);
         assert.deepEqual(result.body, {
-          message: body === null ? 'Invalid JSON body.' : 'Refresh token is required and must be a string.',
+          ...(body === null ? { message: 'Invalid JSON body.' } : {
+            message: 'Validation failed.',
+            errors: { refreshToken: typeof body.refreshToken === 'string'
+              ? 'Refresh token is required.' : 'Refresh token is required and must be a string.' },
+          }),
         });
       }
     });
