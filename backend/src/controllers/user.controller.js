@@ -4,6 +4,22 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 const publicFields = { id: true, name: true, email: true, role: true, isActive: true };
 
+export async function getOwnProfile(req, res) {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { id: true, name: true, email: true, role: true, isActive: true },
+    });
+    if (!user || !user.isActive) {
+      return res.status(401).json({ message: 'Invalid access token.' });
+    }
+    const { id, name, email, role } = user;
+    return res.json({ id, name, email, role });
+  } catch {
+    return res.status(500).json({ message: 'Unable to retrieve profile.' });
+  }
+}
+
 export async function createUser(req, res) {
   const { name, email, password, role } = req.body ?? {};
   if (typeof name !== 'string' || !name.trim() ||

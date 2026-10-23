@@ -49,6 +49,42 @@ test('administrators create, list, and deactivate users with protected access', 
     assert.equal(adminLogin.status, 200);
     const authorization = `Bearer ${adminLogin.body.accessToken}`;
 
+    await t.test('all roles can view only their own current profile fields', async () => {
+      for (const role of ['ADMIN', 'CLIENT', 'TECHNICIAN']) {
+        const input = data();
+        const user = await prisma.user.create({ data: {
+          name: input.name, email: input.email, passwordHash: await bcrypt.hash(password, 4), role,
+        } });
+        const signedIn = await login(user.email);
+        assert.equal(signedIn.status, 200);
+        const header = `Bearer ${signedIn.body.accessToken}`;
+        assert.deepEqual(await request('users/me', undefined, header, 'GET'), {
+          status: 200, body: { id: user.id, name: user.name, email: user.email, role },
+        });
+        const current = await prisma.user.update({
+          where: { id: user.id },
+          data: { name: 'Updated Profile', role: role === 'CLIENT' ? 'TECHNICIAN' : role },
+        });
+        const result = await request(`users/me?id=${admin.id}`, undefined, header, 'GET');
+        assert.equal(result.status, 200);
+        assert.deepEqual(result.body, {
+          id: current.id, name: current.name, email: current.email, role: current.role,
+        });
+      }
+    });
+
+    await t.test('profile rejects missing, invalid, expired, and deleted-user tokens', async () => {
+      for (const header of [undefined, 'Bearer invalid',
+        `Bearer ${jwt.sign({ id: admin.id, role: 'ADMIN' }, secret, { expiresIn: -1 })}`,
+        `Bearer ${jwt.sign({ id: admin.id, role: 'ADMIN' }, 'wrong-secret', { expiresIn: '15m' })}`,
+        `Bearer ${jwt.sign({ id: randomUUID(), role: 'CLIENT' }, secret, { expiresIn: '15m' })}`,
+      ]) {
+        assert.deepEqual(await request('users/me', undefined, header, 'GET'), {
+          status: 401, body: { message: 'Invalid access token.' },
+        });
+      }
+    });
+
     await t.test('both supported roles are created, hashed, normalized, and can log in', async () => {
       for (const role of ['CLIENT', 'TECHNICIAN']) {
         const input = { ...data(), role };
@@ -118,6 +154,7 @@ test('administrators create, list, and deactivate users with protected access', 
       const signedIn = await login(target.email);
       const header = `Bearer ${signedIn.body.accessToken}`;
       assert.equal((await request('users', undefined, header, 'GET')).status, 200);
+      assert.equal((await request('users/me', undefined, header, 'GET')).status, 200);
       const result = await request(`users/${target.id}/deactivate`, {}, authorization, 'PATCH');
       assert.equal(result.status, 200);
       assert.deepEqual(result.body, {
@@ -130,6 +167,7 @@ test('administrators create, list, and deactivate users with protected access', 
       assert.equal((await login(target.email)).status, 401);
       assert.equal((await request('auth/refresh', { refreshToken: signedIn.body.refreshToken })).status, 401);
       assert.equal((await request('users', undefined, header, 'GET')).status, 401);
+      assert.equal((await request('users/me', undefined, header, 'GET')).status, 401);
       assert.equal((await request('users', data(), header)).status, 401);
       assert.equal((await request(`users/${admin.id}/deactivate`, {}, header, 'PATCH')).status, 401);
       const listed = await request('users', undefined, authorization, 'GET');
