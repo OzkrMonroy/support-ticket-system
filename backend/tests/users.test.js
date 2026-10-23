@@ -8,7 +8,7 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-test('administrators create users with validated input and protected credentials', async (t) => {
+test('administrators create, list, and deactivate users with protected access', async (t) => {
   const prisma = new PrismaClient();
   const secret = 'users-test-secret-only';
   const password = 'users-test-password';
@@ -17,12 +17,12 @@ test('administrators create users with validated input and protected credentials
     env: { ...process.env, PORT: '32104', JWT_SECRET: secret },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  const request = async (path, body, authorization) => {
+  const request = async (path, body, authorization, method = 'POST') => {
     const response = await fetch(`http://localhost:32104/api/${path}`, {
-      method: 'POST', headers: {
+      method, headers: {
         'Content-Type': 'application/json',
         ...(authorization ? { Authorization: authorization } : {}),
-      }, body: JSON.stringify(body),
+      }, body: method === 'GET' ? undefined : JSON.stringify(body),
     });
     return { status: response.status, body: await response.json() };
   };
@@ -76,6 +76,73 @@ test('administrators create users with validated input and protected credentials
         `Bearer ${jwt.sign({ role: 'ADMIN' }, secret, { expiresIn: '15m' })}`,
       ]) {
         assert.equal((await request('users', data(), header)).status, 401);
+      }
+    });
+
+    await t.test('administrators list safe fields in a predictable order', async () => {
+      const result = await request('users', undefined, authorization, 'GET');
+      assert.equal(result.status, 200);
+      const expected = await prisma.user.findMany({
+        select: { id: true, name: true, email: true, role: true, isActive: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      });
+      assert.deepEqual(result.body, expected);
+    });
+
+    await t.test('listing and deactivation require valid administrator access', async () => {
+      const headers = [undefined, 'Bearer invalid',
+        `Bearer ${jwt.sign({ id: admin.id, role: 'ADMIN' }, secret, { expiresIn: -1 })}`,
+        `Bearer ${jwt.sign({ id: randomUUID(), role: 'ADMIN' }, secret, { expiresIn: '15m' })}`,
+        `Bearer ${jwt.sign({ id: 'invalid', role: 'ADMIN' }, secret, { expiresIn: '15m' })}`];
+      for (const header of headers) {
+        assert.equal((await request('users', undefined, header, 'GET')).status, 401);
+        assert.equal((await request(`users/${admin.id}/deactivate`, {}, header, 'PATCH')).status, 401);
+      }
+      for (const role of ['CLIENT', 'TECHNICIAN']) {
+        const input = data();
+        const user = await prisma.user.create({ data: {
+          name: input.name, email: input.email, passwordHash: await bcrypt.hash(password, 4), role,
+        } });
+        const signedIn = await login(user.email);
+        const header = `Bearer ${signedIn.body.accessToken}`;
+        assert.equal((await request('users', undefined, header, 'GET')).status, 403);
+        assert.equal((await request(`users/${admin.id}/deactivate`, {}, header, 'PATCH')).status, 403);
+      }
+    });
+
+    await t.test('deactivation preserves records and immediately blocks login, refresh, and protected routes', async () => {
+      const input = data();
+      const target = await prisma.user.create({ data: {
+        name: input.name, email: input.email, passwordHash: await bcrypt.hash(password, 4), role: 'ADMIN',
+      } });
+      const signedIn = await login(target.email);
+      const header = `Bearer ${signedIn.body.accessToken}`;
+      assert.equal((await request('users', undefined, header, 'GET')).status, 200);
+      const result = await request(`users/${target.id}/deactivate`, {}, authorization, 'PATCH');
+      assert.equal(result.status, 200);
+      assert.deepEqual(result.body, {
+        id: target.id, name: target.name, email: target.email, role: 'ADMIN', isActive: false,
+      });
+      assert.deepEqual(await request(`users/${target.id}/deactivate`, {}, authorization, 'PATCH'), result);
+      const stored = await prisma.user.findUniqueOrThrow({ where: { id: target.id } });
+      assert.equal(stored.isActive, false);
+      assert.equal(stored.passwordHash, target.passwordHash);
+      assert.equal((await login(target.email)).status, 401);
+      assert.equal((await request('auth/refresh', { refreshToken: signedIn.body.refreshToken })).status, 401);
+      assert.equal((await request('users', undefined, header, 'GET')).status, 401);
+      assert.equal((await request('users', data(), header)).status, 401);
+      assert.equal((await request(`users/${admin.id}/deactivate`, {}, header, 'PATCH')).status, 401);
+      const listed = await request('users', undefined, authorization, 'GET');
+      assert.deepEqual(listed.body.find((user) => user.id === target.id), result.body);
+    });
+
+    await t.test('self-deactivation is forbidden and unknown or malformed IDs return 404', async () => {
+      for (const id of [admin.id, admin.id.toUpperCase()]) {
+        assert.equal((await request(`users/${id}/deactivate`, {}, authorization, 'PATCH')).status, 403);
+      }
+      assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: admin.id } })).isActive, true);
+      for (const id of [randomUUID(), 'invalid-id']) {
+        assert.equal((await request(`users/${id}/deactivate`, {}, authorization, 'PATCH')).status, 404);
       }
     });
 
