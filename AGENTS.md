@@ -126,18 +126,24 @@ Keep source code, filenames, identifiers, and technical documentation in English
 
 ## Task Documentation
 
-After completing each task:
+After completing each task or user story:
 
-1. Create or update `docs/implementation/TASK-XX.md`.
+1. Create or update `docs/implementation/<TASK-ID>.md`
+   (e.g., `TASK-01.md` or `HU-01.md`).
 2. Briefly explain:
    - What was implemented.
    - Why the main technical decisions were made.
    - Which files are important and their purpose.
    - How the implementation was verified.
    - Any known limitations.
-3. Update the root `README.md` whenever installation, configuration, or execution instructions change.
-4. Keep documentation concise, clear, and written in English.
-5. Document only what was actually implemented. Do not invent functionality or test results.
+3. Update the corresponding README only when installation,
+   configuration, or execution instructions change:
+   - Backend changes: `backend/README.md`.
+   - Frontend changes: `frontend/README.md`.
+4. Do not create or update the root `README.md` unless explicitly requested.
+5. Keep documentation concise, clear, and written in English.
+6. Document only what was actually implemented. Do not invent
+   functionality or test results.
 
 ## Git Commits
 
