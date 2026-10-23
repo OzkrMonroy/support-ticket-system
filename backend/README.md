@@ -98,7 +98,21 @@ Send `POST http://localhost:3000/api/auth/login` with `Content-Type: application
 
 A successful response is HTTP 200 with `accessToken`, `refreshToken`, and `user` (`id`, `name`, `email`, `role`). The signed JWT contains `id`, `role`, and issue/expiration timestamps; it expires after 15 minutes. Missing or invalid fields and malformed JSON return 400. Unknown users, wrong passwords, and inactive users all return 401 with `{"message":"Invalid credentials."}`. Unexpected backend failures return a generic 500 response.
 
-Passwords, password hashes, and the signing secret are never returned. Treat both tokens as private credentials. Protected endpoints and frontend screens are not implemented.
+Passwords, password hashes, and the signing secret are never returned. Treat both tokens as private credentials. Administrator-only user creation is available as described below. Frontend screens are not implemented.
+
+## Create users as administrator
+
+Send `POST http://localhost:3000/api/users` with `Content-Type: application/json` and `Authorization: Bearer <accessToken>`, using an administrator access token returned by login.
+
+```json
+{"name":"Example User","email":"user@example.com","password":"ExamplePassword123!","role":"CLIENT"}
+```
+
+Only `CLIENT` and `TECHNICIAN` roles are accepted. Name, email, password, and role must be nonempty strings; email must have a basic email format and passwords must not exceed 72 UTF-8 bytes. Names are trimmed; emails are trimmed and lowercased. Passwords are hashed with bcrypt (cost 12).
+
+Success returns HTTP 201 with `id`, `name`, `email`, `role`, and `isActive` (default `true`). Invalid input returns 400, missing/invalid/expired access tokens return 401, authenticated non-administrators receive 403, and duplicate normalized emails return 409. Unexpected database failures return a generic 500 response. New users can log in using their normalized email and original password. Administrator creation remains in the seed script.
+
+Authorization uses the signed access token's role until token expiration; it does not query current account status or role on each request.
 
 ## Refresh access tokens
 
@@ -141,7 +155,7 @@ Create a PostgreSQL connection with host `localhost`, port from `POSTGRES_PORT`,
 
 ## Checks
 
-Integration tests use Node's built-in test runner to verify health, the administrator seed, login, refresh rotation, and logout. Start PostgreSQL, apply migrations, and configure `ADMIN_*` first. Tests use the configured database and leave the seeded administrator in place. The password in `.env` must match the seeded administrator. HTTP tests temporarily use ports `32101`, `32102`, and `32103` and supply their own signing secrets. Login and refresh fixtures use unique emails; their users and sessions are removed after the test. The administrator login test removes only the session it creates.
+Integration tests use Node's built-in test runner to verify health, the administrator seed, login, refresh rotation, logout, and administrator-only user creation. Start PostgreSQL, apply migrations, and configure `ADMIN_*` first. Tests use the configured database and leave the seeded administrator in place. The password in `.env` must match the seeded administrator. HTTP tests temporarily use ports `32101`, `32102`, `32103`, and `32104` and supply their own signing secrets. Login and refresh fixtures use unique emails; their users and sessions are removed after the test. The administrator login test removes only the session it creates.
 
 From `backend/`:
 
