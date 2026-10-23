@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { PrismaClient } from '@prisma/client';
@@ -13,6 +13,7 @@ test('login validates requests, credentials, active status, roles, and signed to
   const secret = 'login-test-secret-only';
   const password = 'integration-test-password';
   const createdIds = [];
+  const adminSessionIds = [];
   const server = spawn(process.execPath, ['src/server.js'], {
     env: { ...process.env, PORT: '32102', JWT_SECRET: secret },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -43,7 +44,8 @@ test('login validates requests, credentials, active status, roles, and signed to
         createdIds.push(user.id);
         const result = await request({ email: user.email, password });
         assert.equal(result.status, 200);
-        assert.deepEqual(Object.keys(result.body).sort(), ['accessToken', 'user']);
+        assert.deepEqual(Object.keys(result.body).sort(), ['accessToken', 'refreshToken', 'user']);
+        assert.match(result.body.refreshToken, /^[a-f0-9]{64}$/);
         assert.deepEqual(result.body.user, {
           id: user.id, name: user.name, email: user.email, role,
         });
@@ -62,6 +64,10 @@ test('login validates requests, credentials, active status, roles, and signed to
       const result = await request({ email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD });
       assert.equal(result.status, 200);
       assert.equal(result.body.user.role, 'ADMIN');
+      const session = await prisma.refreshSession.findUniqueOrThrow({ where: {
+        tokenHash: createHash('sha256').update(result.body.refreshToken).digest('hex'),
+      } });
+      adminSessionIds.push(session.id);
     });
 
     await t.test('invalid credentials and inactive accounts share the same 401 response', async () => {
@@ -101,6 +107,9 @@ test('login validates requests, credentials, active status, roles, and signed to
       await exited;
     }
     // Remove only fixtures created by this test, never existing application users.
+    await prisma.refreshSession.deleteMany({ where: { OR: [
+      { userId: { in: createdIds } }, { id: { in: adminSessionIds } },
+    ] } });
     await prisma.user.deleteMany({ where: { id: { in: createdIds } } });
     await prisma.$disconnect();
   }
