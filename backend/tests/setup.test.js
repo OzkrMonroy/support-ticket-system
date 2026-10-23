@@ -31,7 +31,7 @@ test('seed stores a password hash and preserves the administrator on repeated ru
 
 test('health endpoint responds with HTTP 200 and the expected JSON', async () => {
   const server = spawn(process.execPath, ['src/server.js'], {
-    env: { ...process.env, PORT: '32101' },
+    env: { ...process.env, PORT: '32101', JWT_SECRET: 'setup-test-secret-only' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   try {

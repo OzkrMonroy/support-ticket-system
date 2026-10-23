@@ -1,6 +1,6 @@
 # Support Ticket System
 
-University project for managing technical support tickets. This first task provides a minimal backend foundation using Node.js, Express, JavaScript ESM, PostgreSQL, and Prisma 6.19.3. Authentication, ticket operations, Angular, and RabbitMQ are pending later tasks.
+University project for managing technical support tickets. The backend uses Node.js, Express, JavaScript ESM, PostgreSQL 17, and Prisma 6.19.3. It provides a health endpoint and user login with a short-lived access JWT. Ticket operations, Angular, and RabbitMQ are pending later tasks.
 
 ## Prerequisites
 
@@ -8,7 +8,7 @@ University project for managing technical support tickets. This first task provi
 - Docker with Docker Compose (start Docker Desktop before continuing).
 - Optional: TablePlus to inspect PostgreSQL.
 
-Run the following commands from the repository root unless a step says otherwise.
+Paths and Compose commands below assume the repository root unless a step says otherwise.
 
 ## Environment configuration
 
@@ -18,9 +18,16 @@ cp backend/.env.example backend/.env
 
 Edit `backend/.env` before starting. The example values are for local development only. Never commit this file.
 
+Generate a signing secret with the following command, then copy its output into `JWT_SECRET` in `backend/.env`. Keep it private and use a different value for each environment. The backend refuses to start if it is missing or blank.
+
+```sh
+node --input-type=module -e "import { randomBytes } from 'node:crypto'; console.log(randomBytes(32).toString('hex'))"
+```
+
 | Variable | Purpose |
 | --- | --- |
 | `PORT` | Express port, default `3000`. |
+| `JWT_SECRET` | Private random signing secret for HS256 access JWTs; tokens expire after 15 minutes. |
 | `CORS_ORIGIN` | Allowed frontend origin, initially `http://localhost:4200`. |
 | `DATABASE_URL` | Prisma connection URL. Its username, password, database, and host port must match the PostgreSQL settings below. URL-encode special characters in the URL password. |
 | `POSTGRES_USER` | PostgreSQL account created when its data volume is initialized. |
@@ -31,7 +38,7 @@ Edit `backend/.env` before starting. The example values are for local developmen
 | `ADMIN_EMAIL` | Initial application administrator's unique email. |
 | `ADMIN_PASSWORD` | Application password, hashed by the seed; maximum 72 UTF-8 bytes. Replace the example value. |
 
-The PostgreSQL credentials connect tools and Prisma to the database. The `ADMIN_*` values create an application user; they do not grant database access. The application does not yet implement login.
+The PostgreSQL credentials connect tools and Prisma to the database. The `ADMIN_*` values create an application user; they do not grant database access.
 
 ## Start PostgreSQL
 
@@ -51,7 +58,7 @@ From the repository root, install the dependencies locked in `backend/package-lo
 
 ```sh
 cd backend
-npm i
+npm ci
 ```
 
 Keep this terminal in `backend/`. Generate Prisma Client, apply the included migration, and create the initial administrator in this order:
@@ -62,7 +69,7 @@ npm run prisma:deploy
 npm run prisma:seed
 ```
 
-The migration creates `User`, `RefreshSession`, and the role enum. The seed creates an active `ADMIN` with a bcrypt password hash. Repeating the seed leaves the existing administrator unchanged, including the password. It fails if the configured email belongs to another role. No authentication endpoints or refresh-token behavior are implemented yet.
+The migration creates `User`, `RefreshSession`, and the role enum. The seed creates an active `ADMIN` with a bcrypt password hash. Repeating the seed leaves the existing administrator unchanged, including the password. It fails if the configured email belongs to another role. Refresh-token behavior is not implemented.
 
 ## Start and check Express
 
@@ -80,6 +87,18 @@ curl -i http://localhost:3000/api/health
 
 Expected: HTTP `200` with `{"status":"ok"}`. If `PORT` changes, use that port in the URL. This endpoint checks the HTTP server only; it does not check database availability.
 
+## User login
+
+Send `POST http://localhost:3000/api/auth/login` with `Content-Type: application/json` and a body containing string fields `email` and `password`. Use the administrator credentials configured when the seed first created the user, or another existing active user.
+
+```json
+{"email":"admin@example.com","password":"replace-with-your-local-password"}
+```
+
+A successful response is HTTP 200 with `accessToken` and `user` (`id`, `name`, `email`, `role`). The signed JWT contains `id`, `role`, and issue/expiration timestamps; it expires after 15 minutes. Missing or invalid fields and malformed JSON return 400. Unknown users, wrong passwords, and inactive users all return 401 with `{"message":"Invalid credentials."}`. Unexpected backend failures return a generic 500 response.
+
+Passwords, password hashes, and the signing secret are never returned. Treat access tokens as private credentials. This story does not add protected endpoints, refresh tokens, logout, or frontend screens.
+
 ## Connect with TablePlus
 
 Create a PostgreSQL connection with host `localhost`, port from `POSTGRES_PORT`, user from `POSTGRES_USER`, password from `POSTGRES_PASSWORD`, and database from `POSTGRES_DB`. With unchanged example values, these are port `5432`, user `support_user`, password `local_password`, and database `support_tickets`. SSL is not required for this local container. Application administrator credentials do not belong in this connection.
@@ -93,7 +112,7 @@ Create a PostgreSQL connection with host `localhost`, port from `POSTGRES_PORT`,
 
 ## Checks
 
-Two integration tests use Node's built-in test runner to verify the health endpoint and the administrator's password hash and seed idempotency. Start PostgreSQL, apply migrations, and configure `ADMIN_*` first. Tests use the configured database and leave the seeded administrator in place. The password in `.env` must match the seeded administrator; the HTTP test temporarily uses port `32101`.
+Integration tests use Node's built-in test runner to verify health, the administrator seed, and login. Start PostgreSQL, apply migrations, and configure `ADMIN_*` first. Tests use the configured database and leave the seeded administrator in place. The password in `.env` must match the seeded administrator. HTTP tests temporarily use ports `32101` and `32102` and supply their own signing secrets. Login fixtures use unique emails and are removed after the test; existing users are not changed.
 
 From `backend/`:
 
@@ -113,4 +132,4 @@ Use TablePlus to confirm one administrator row for the configured email, role `A
 - **Missing tables or Prisma Client:** run `npm run prisma:generate` and `npm run prisma:deploy` from `backend/`.
 - **Seed configuration missing:** run the seed from `backend/` and check all three `ADMIN_*` variables in its `.env`.
 
-Implementation decisions, important files, verification results, and limitations are recorded in [TASK-01 implementation notes](docs/implementation/TASK-01.md).
+Implementation details are recorded in [TASK-01 notes](../docs/implementation/TASK-01.md) and [HU-01 notes](../docs/implementation/HU-01.md).
