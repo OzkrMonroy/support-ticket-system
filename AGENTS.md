@@ -8,6 +8,16 @@ The main objective is to deliver a functional application that satisfies the aca
 
 **Prioritize simplicity, readability, and fast development over production-grade architecture.**
 
+Before implementing a task:
+
+1. Read `docs/PROJECT.md` to understand the project goals, if it exists.
+2. Read `docs/ROADMAP.md` to understand the planned work and current progress, if it exists.
+3. Consult `docs/ARCHITECTURE.md` when making technical decisions, if it exists.
+4. Read the corresponding task specification.
+5. If a context document does not exist yet, proceed with the available project files; do not invent its contents.
+
+Keep documentation consistent with the actual code. Do not mark tasks or user stories as completed before explicit user approval.
+
 ## Technology stack
 
 - Frontend: Angular.
@@ -79,17 +89,11 @@ Do not introduce TypeScript into the backend.
 
 ## Documentation
 
-Maintain a clear `README.md` that explains:
-
-- What the project does.
-- Technologies used.
-- Requirements for running the project.
-- How to configure `.env`.
-- How to start PostgreSQL, the backend, and the frontend.
-- How to run Prisma migrations and seed scripts.
-- How to execute available tests.
-
-Write instructions for someone who is not familiar with the project's initial setup.
+- Keep setup and execution instructions in the relevant application README (`backend/README.md` or `frontend/README.md`).
+- Do not create or update a root `README.md` unless explicitly requested.
+- Write clear setup instructions for developers unfamiliar with the project.
+- Use `docs/PROJECT.md` for project goals, `docs/ROADMAP.md` for planned work and status, and `docs/ARCHITECTURE.md` for technical structure and diagrams when those documents exist.
+- Keep `backend/prisma/schema.prisma` as the source of truth for database models; diagrams are explanatory and must match it.
 
 ## Working with Codex
 
@@ -126,24 +130,19 @@ Keep source code, filenames, identifiers, and technical documentation in English
 
 ## Task Documentation
 
-After completing each task or user story:
+After implementing each task or user story, before approval:
 
-1. Create or update `docs/implementation/<TASK-ID>.md`
-   (e.g., `TASK-01.md` or `HU-01.md`).
-2. Briefly explain:
-   - What was implemented.
-   - Why the main technical decisions were made.
-   - Which files are important and their purpose.
-   - How the implementation was verified.
-   - Any known limitations.
-3. Update the corresponding README only when installation,
-   configuration, or execution instructions change:
-   - Backend changes: `backend/README.md`.
-   - Frontend changes: `frontend/README.md`.
-4. Do not create or update the root `README.md` unless explicitly requested.
-5. Keep documentation concise, clear, and written in English.
-6. Document only what was actually implemented. Do not invent
-   functionality or test results.
+1. Create or update `docs/implementation/<TASK-ID>.md` (e.g., `TASK-01.md` or `HU-01.md`).
+2. Briefly explain what was implemented, why key decisions were made, important files, verification actually performed, and known limitations.
+3. Update `backend/README.md` or `frontend/README.md` only when its setup, configuration, or execution instructions change.
+4. Update `docs/ARCHITECTURE.md` or relevant diagrams only when the implementation changes the documented structure, if those documents exist.
+5. Keep documentation concise and in English. Never invent functionality or test results.
+6. Do not mark the work as completed or approved in `docs/ROADMAP.md` yet.
+
+After explicit user approval:
+
+1. Update `docs/ROADMAP.md` to mark the approved task or user story completed, if the roadmap exists.
+2. Do not commit automatically; follow the Git Commits rules below.
 
 ## Git Commits
 
