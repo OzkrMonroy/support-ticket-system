@@ -138,3 +138,12 @@ After completing each task:
 3. Update the root `README.md` whenever installation, configuration, or execution instructions change.
 4. Keep documentation concise, clear, and written in English.
 5. Document only what was actually implemented. Do not invent functionality or test results.
+
+## Git Commits
+
+- Follow the Conventional Commits specification.
+- Do not create commits without explicit user approval.
+- Once a task is approved, create a commit when explicitly requested.
+- Use a concise, descriptive commit message in English.
+- Include only changes related to the approved task.
+- Never push changes unless explicitly requested.
