@@ -12,7 +12,7 @@ A university final project for managing technical support tickets for the fictio
 
 The backend also implements a health endpoint, active-account checks, password hashing, request validation, and persistent refresh sessions. EP-01 (HU-01 through HU-06), TASK-01, and TASK-02 are approved. Their specifications and implementation records are linked in the [roadmap](ROADMAP.md).
 
-Ticket CRUD, priority-based automatic assignment, follow-up notifications, queue processing, and the Angular interface are not implemented. The academic baseline requires at least two asynchronous jobs, retries/failure handling, validated SPA forms, navigation, action feedback, and visible job status. The ticket board is an optional idea in the requirements, not an approved feature.
+Ticket creation is implemented for active CLIENT and ADMIN accounts under the approved HU-07 scope. Ticket listing, details, updates, deletion, priority-based automatic assignment, follow-up notifications, queue processing, and the Angular interface are not implemented. The academic baseline requires at least two asynchronous jobs, retries/failure handling, validated SPA forms, navigation, action feedback, and visible job status. The ticket board is an optional idea in the requirements, not an approved feature.
 
 ## Technology and repository
 

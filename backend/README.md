@@ -1,6 +1,6 @@
 # Support Ticket System
 
-University project for managing technical support tickets. The backend uses Node.js, Express, JavaScript ESM, PostgreSQL 17, and Prisma 6.19.3. It provides a health endpoint, login with short-lived access JWTs, refresh-token rotation, logout, administrator account management, and own-profile retrieval. Ticket operations, Angular, and RabbitMQ are pending later tasks.
+University project for managing technical support tickets. The backend uses Node.js, Express, JavaScript ESM, PostgreSQL 17, and Prisma 6.19.3. It provides a health endpoint, login with short-lived access JWTs, refresh-token rotation, logout, administrator account management, own-profile retrieval, and ticket creation. Other ticket operations, Angular, and RabbitMQ are pending later tasks.
 
 ## Prerequisites
 
@@ -62,7 +62,7 @@ cd backend
 npm ci
 ```
 
-Keep this terminal in `backend/`. Generate Prisma Client, apply the included migration, and create the initial administrator in this order:
+Keep this terminal in `backend/`. Generate Prisma Client, apply the included migrations, and create the initial administrator in this order:
 
 ```sh
 npm run prisma:generate
@@ -70,7 +70,7 @@ npm run prisma:deploy
 npm run prisma:seed
 ```
 
-The migration creates `User`, `RefreshSession`, and the role enum. The seed creates an active `ADMIN` with a bcrypt password hash. Repeating the seed leaves the existing administrator unchanged, including the password. It fails if the configured email belongs to another role. HU-02 reuses the existing schema without a new migration.
+The migrations create `User`, `RefreshSession`, `Ticket`, and the role, ticket priority, and ticket status enums. The seed creates an active `ADMIN` with a bcrypt password hash. Repeating the seed leaves the existing administrator unchanged, including the password. It fails if the configured email belongs to another role. HU-02 reuses the existing schema without a new migration.
 
 ## Start and check Express
 
@@ -138,6 +138,18 @@ Self-deactivation returns 403, an unknown valid UUID returns 404, and a malforme
 
 Send `GET http://localhost:3000/api/users/me` with a Bearer access token for any active `ADMIN`, `CLIENT`, or `TECHNICIAN`. Success returns HTTP 200 with only `id`, `name`, `email`, and `role`, read from the current database record. The identity comes from authentication; query parameters cannot select another user. Missing/invalid/expired tokens or missing/inactive accounts return 401; unexpected database failures return a generic 500 response.
 
+## Create support tickets
+
+Send `POST http://localhost:3000/api/tickets` with `Content-Type: application/json` and a Bearer access token for an active CLIENT or ADMIN.
+
+```json
+{"title":"Cannot access email","description":"The email application rejects my credentials.","priority":"HIGH"}
+```
+
+Title and description are trimmed, required, and limited to 200 and 5000 characters respectively. Priority must be `LOW`, `MEDIUM`, or `HIGH`. Additional fields are rejected with 400 using the existing `message`/`errors` envelope; unknown-field errors have an empty `errors` object because the shared validator reports only field paths. Do not send IDs, status, assignment, or timestamps.
+
+Success returns 201 with persisted scalar fields: `id`, `title`, `description`, `priority`, `status`, `createdById`, `assignedToId`, `createdAt`, and `updatedAt`. The creator comes from authentication, status defaults to `OPEN`, and assignment is `null`. User records are not included. Missing/invalid/expired authentication and inactive accounts receive 401; TECHNICIAN receives 403 before field validation. Unexpected database errors return a generic 500 response. Listing, updates, deletion, assignment, and notifications are not implemented.
+
 ## Refresh access tokens
 
 Send `POST http://localhost:3000/api/auth/refresh` with `Content-Type: application/json`:
@@ -179,7 +191,7 @@ Create a PostgreSQL connection with host `localhost`, port from `POSTGRES_PORT`,
 
 ## Checks
 
-Integration tests use Node's built-in test runner to verify health, the administrator seed, login, refresh rotation, logout, administrator-only user creation/listing/deactivation, current-account authorization, own-profile retrieval, and field validation. Start PostgreSQL, apply migrations, and configure `ADMIN_*` first. Tests use the configured database and leave the seeded administrator in place. The password in `.env` must match the seeded administrator. HTTP tests temporarily use ports `32101`, `32102`, `32103`, and `32104` and supply their own signing secrets. Login and refresh fixtures use unique emails; their users and sessions are removed after the test. The administrator login test removes only the session it creates.
+Integration tests use Node's built-in test runner to verify health, the administrator seed, login, refresh rotation, logout, administrator-only user creation/listing/deactivation, current-account authorization, own-profile retrieval, ticket creation, and field validation. Start PostgreSQL, apply migrations, and configure `ADMIN_*` first. Tests use the configured database and leave the seeded administrator in place. The password in `.env` must match the seeded administrator. HTTP tests temporarily use ports `32101`, `32102`, `32103`, `32104`, and `32105` and supply their own signing secrets. Login and refresh fixtures use unique emails; their users and sessions are removed after the test. Ticket tests remove only their own tickets and user fixtures. The administrator login test removes only the session it creates.
 
 From `backend/`:
 

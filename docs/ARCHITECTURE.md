@@ -4,7 +4,7 @@
 
 The application is a JavaScript ESM Express REST backend connected through Prisma 6.19.3 to PostgreSQL 17. Docker Compose runs only PostgreSQL with a persistent named volume and health check. Express runs separately. CORS is configured for the intended frontend origin; the health endpoint checks HTTP availability only.
 
-Angular and RabbitMQ are established technology choices but are not implemented. There is no frontend, broker service, queue publisher, worker, ticket model, or ticket API. Dashed arrows below show planned integration, not existing runtime behavior.
+Angular and RabbitMQ are established technology choices but are not implemented. Ticket creation is implemented for CLIENT and ADMIN accounts (approved HU-07). There is no frontend, broker service, queue publisher, or worker. Dashed arrows below show planned integration, not existing runtime behavior.
 
 ```mermaid
 flowchart LR
@@ -24,11 +24,11 @@ No worker persistence, notification provider, or queue topology is decided by th
 | Path under `backend/` | Responsibility |
 | --- | --- |
 | `src/server.js` | Environment loading, Express/CORS/JSON setup, route mounting, health endpoint, parsing error handler, HTTP listener |
-| `src/routes/` | Authentication and user endpoints; middleware order |
-| `src/controllers/` | Authentication/session business logic and direct Prisma user operations |
+| `src/routes/` | Authentication, user, and ticket creation endpoints; middleware order |
+| `src/controllers/` | Authentication/session business logic and direct Prisma user/ticket operations |
 | `src/middleware/` | Bearer JWT authentication, current database account/role checks, administrator authorization, Zod validation adapter |
 | `src/schemas/` | Zod body/parameter schemas; no environment validation |
-| `prisma/` | Database schema, role enum, initial migration |
+| `prisma/` | Database schema, enums, initial and ticket migrations |
 | `scripts/seed-admin.js` | Environment-configured, idempotent administrator creation with bcrypt hashing |
 | `tests/` | Node test runner HTTP/database integration tests |
 
@@ -36,11 +36,24 @@ There is no service/repository layer. See the [backend README](../backend/README
 
 ## Database model
 
-[backend/prisma/schema.prisma](../backend/prisma/schema.prisma) is the source of truth for database models. The initial migration creates the same two tables and role enum. The ER diagram includes persisted scalar fields only; the Prisma relation fields `user` and `refreshSessions` are represented by the relationship.
+[backend/prisma/schema.prisma](../backend/prisma/schema.prisma) is the source of truth for database models. The initial migration creates User, RefreshSession, and Role; the HU-07 migration adds Ticket, TicketPriority, and TicketStatus. The ER diagram includes persisted scalar fields only; the Prisma relation fields `user` and `refreshSessions` are represented by the relationship.
 
 ```mermaid
 erDiagram
     User ||--o{ RefreshSession : has
+    User ||--o{ Ticket : creates
+    User |o--o{ Ticket : assigned
+    Ticket {
+        String id PK "UUID; default uuid()"
+        String title
+        String description
+        TicketPriority priority "LOW, MEDIUM, HIGH"
+        TicketStatus status "OPEN default; IN_PROGRESS, RESOLVED, CLOSED"
+        String createdById FK "UUID; required"
+        String assignedToId FK "UUID; nullable"
+        DateTime createdAt "default now()"
+        DateTime updatedAt "updatedAt"
+    }
     User {
         String id PK "UUID; default uuid()"
         String name
@@ -61,12 +74,13 @@ erDiagram
     }
 ```
 
-A user can have zero or more sessions; every session belongs to one user. Both IDs use PostgreSQL UUID columns. Email and token hash are unique. The migration uses `ON DELETE RESTRICT` and `ON UPDATE CASCADE` for the foreign key. There are no ticket or queue tables.
+A user can have zero or more sessions; every session belongs to one user. Both IDs use PostgreSQL UUID columns. Email and token hash are unique. The migration uses `ON DELETE RESTRICT` and `ON UPDATE CASCADE` for the foreign key. Ticket creator deletion is restricted; optional assignee deletion sets assignedToId to null. Both ticket foreign keys cascade updates. There are no queue tables.
 
 ## API and session flow
 
 | Method | Route | Access/purpose |
 | --- | --- | --- |
+| POST | `/api/tickets` | CLIENT or ADMIN; create an OPEN, unassigned ticket owned by the authenticated user |
 | GET | `/api/health` | Public HTTP health |
 | POST | `/api/auth/login` | Public credential exchange for active accounts |
 | POST | `/api/auth/refresh` | Refresh-token exchange |
@@ -91,3 +105,5 @@ Earlier implementation notes describe their state at the time of each task. HU-0
 The [backend README](../backend/README.md) was reconciled with current authorization, request validation, and all existing API endpoints during TASK-03 final review. Setup and execution commands were unchanged.
 
 Academic registration compliance and the proposed ticket/queue/frontend work are tracked in the [roadmap](ROADMAP.md). This document does not prescribe their future schema or detailed architecture.
+
+Ticket creation uses strict Zod body validation (trimmed title: 1–200 characters; description: 1–5000; required priority enum). Authentication and current-role authorization precede validation. Only persisted ticket scalar fields are returned; server-owned fields and unknown body keys are rejected. No ticket reads, updates, deletion, or jobs are implemented.

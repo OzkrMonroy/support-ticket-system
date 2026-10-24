@@ -4,7 +4,7 @@
 
 Statuses: `Completed` = explicitly approved and supported by repository records; `In progress` = work underway or awaiting approval; `Pending` = agreed work not yet delivered; `Proposed` = unapproved scope or breakdown.
 
-TASK-03 confirms prior approval of EP-01, HU-01 through HU-06, TASK-01, and TASK-02. Their source code and implementation records support delivery. Historical verification results belong to those records; they were not rerun for this documentation task. Future IDs and story boundaries below are proposals, not approved specifications.
+TASK-03 confirms prior approval of EP-01, HU-01 through HU-06, TASK-01, and TASK-02. Their source code and implementation records support delivery. Historical verification results belong to those records; they were not rerun for this documentation task. HU-07 was subsequently tested and explicitly approved by the user. Remaining future IDs and story boundaries below are proposals, not approved specifications.
 
 ## Epics
 
@@ -31,14 +31,14 @@ Completion applies to the approved backend stories; Angular authentication scree
 
 ### EP-02: Ticket Management
 
-| Proposed story ID | Description | Status |
+| Story ID | Description | Status |
 | --- | --- | --- |
-| HU-07 | Create tickets with approved fields and access rules | Proposed |
+| [HU-07](tasks/HU-07.md) | Create support tickets; user-approved ([record](implementation/HU-07.md)) | Completed |
 | HU-08 | List tickets and view ticket details with approved visibility rules | Proposed |
 | HU-09 | Update tickets; define priority and status rules | Proposed |
 | HU-10 | Delete tickets under approved permissions | Proposed |
 
-Basis: full CRUD of the chosen entity (PDF pages 1-2); clients, tickets, and technicians (page 5). Fields, permissions, transitions, and deletion semantics require agreement. A status board is an optional proposal, not part of the approved baseline.
+Basis: full CRUD of the chosen entity (PDF pages 1-2); clients, tickets, and technicians (page 5). HU-07 defines the approved creation fields and permissions. Remaining permissions, transitions, and deletion semantics require agreement. A status board is an optional proposal, not part of the approved baseline.
 
 ### EP-03: Asynchronous Processing
 
@@ -82,7 +82,7 @@ PDF pages 2-4 require security middleware, collaboration evidence, a maximum 10-
 ## Gaps and next work
 
 1. Clarify registration compliance: the PDF requires registration/demo, but approved HU-04 provides administrator-created accounts and excludes public registration. Keep EP-01 approved; record any additional agreed scope separately.
-2. Approve/specify the ticket CRUD scope (proposed HU-07 first), then the two queue jobs and Angular integration. Do not treat these proposed IDs as approved tasks.
+2. Specify the remaining ticket CRUD scope (HU-08 through HU-10), then the two queue jobs and Angular integration. HU-07 creation is approved; the remaining proposed IDs are not approved tasks.
 3. Plan final manuals, security review, collaboration evidence, and demonstration against the [PDF](requirements/project-requirements.pdf).
 
 No conflict was found between the selected stack and the PDF's suggested alternatives. Existing CORS, password hashing, JWT checks, and request validation cover part of basic security; Helmet or an equivalent security-header policy is not present and requires review.
