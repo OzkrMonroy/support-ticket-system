@@ -75,7 +75,7 @@ test('ticket reads enforce current visibility and safe responses', async (t) => 
         for (const ticket of fixtures) {
           assert.deepEqual(Object.keys(ticket).sort(), [
             'id', 'title', 'description', 'priority', 'status', 'createdById',
-            'assignedToId', 'createdAt', 'updatedAt', 'createdBy', 'assignedTo',
+            'assignedToId', 'createdAt', 'updatedAt', 'deletedAt', 'createdBy', 'assignedTo',
           ].sort());
           for (const related of [ticket.createdBy, ticket.assignedTo]) {
             if (related === null) continue;

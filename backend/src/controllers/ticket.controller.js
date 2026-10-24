@@ -9,9 +9,9 @@ const ticketRelations = {
 };
 
 function visibilityFilter(user) {
-  if (user.role === 'ADMIN') return {};
-  if (user.role === 'CLIENT') return { createdById: user.id };
-  return { assignedToId: user.id };
+  if (user.role === 'ADMIN') return { deletedAt: null };
+  if (user.role === 'CLIENT') return { deletedAt: null, createdById: user.id };
+  return { deletedAt: null, assignedToId: user.id };
 }
 
 function canUpdateTicket(role, ticket, changes) {
@@ -26,6 +26,32 @@ function canUpdateTicket(role, ticket, changes) {
   const nextStatus = { OPEN: 'IN_PROGRESS', IN_PROGRESS: 'RESOLVED', RESOLVED: 'CLOSED' };
   return changes.status === nextStatus[ticket.status] ||
     (role === 'ADMIN' && changes.status === 'CLOSED');
+}
+
+export async function deleteTicket(req, res) {
+  try {
+    const where = { id: req.params.id, ...visibilityFilter(req.user) };
+    const ticket = await prisma.ticket.findFirst({ where });
+    if (!ticket) return res.status(404).json({ message: 'Ticket not found.' });
+    if (req.user.role === 'TECHNICIAN' ||
+        (req.user.role === 'CLIENT' && ticket.status !== 'OPEN')) {
+      return res.status(403).json({ message: 'Ticket deletion is not permitted.' });
+    }
+    // Recheck visibility and the client's permitted state when writing.
+    const deleted = await prisma.ticket.updateMany({
+      where: { ...where, ...(req.user.role === 'CLIENT' ? { status: 'OPEN' } : {}) },
+      data: { deletedAt: new Date() },
+    });
+    if (deleted.count === 0) {
+      const current = await prisma.ticket.findFirst({ where });
+      return res.status(current ? 403 : 404).json({
+        message: current ? 'Ticket deletion is not permitted.' : 'Ticket not found.',
+      });
+    }
+    return res.status(204).end();
+  } catch {
+    return res.status(500).json({ message: 'Unable to delete ticket.' });
+  }
 }
 
 export async function updateTicket(req, res) {

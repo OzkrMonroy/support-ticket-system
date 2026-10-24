@@ -53,7 +53,7 @@ test('ticket creation persists valid input and enforces access and validation', 
           const stored = await prisma.ticket.findUniqueOrThrow({ where: { id: result.body.id } });
           assert.deepEqual(result.body, JSON.parse(JSON.stringify(stored)));
           assert.deepEqual(Object.keys(result.body).sort(), [
-            'id', 'title', 'description', 'priority', 'status', 'createdById', 'assignedToId', 'createdAt', 'updatedAt',
+            'id', 'title', 'description', 'priority', 'status', 'createdById', 'assignedToId', 'createdAt', 'updatedAt', 'deletedAt',
           ].sort());
           assert.equal(stored.title, 'Email issue');
           assert.equal(stored.description, 'Cannot log in.');
@@ -61,6 +61,8 @@ test('ticket creation persists valid input and enforces access and validation', 
           assert.equal(stored.createdById, users[role].id);
           assert.equal(stored.status, 'OPEN');
           assert.equal(stored.assignedToId, null);
+          assert.equal(stored.deletedAt, null);
+          assert.equal(result.body.deletedAt, null);
           assert.ok(Number.isFinite(Date.parse(result.body.createdAt)));
           assert.ok(Number.isFinite(Date.parse(result.body.updatedAt)));
         }
@@ -93,7 +95,7 @@ test('ticket creation persists valid input and enforces access and validation', 
           invalid.push({ ...valid, [field]: value });
         }
       }
-      for (const field of ['id', 'createdById', 'assignedToId', 'status', 'createdAt', 'updatedAt', 'extra']) {
+      for (const field of ['id', 'createdById', 'assignedToId', 'status', 'createdAt', 'updatedAt', 'deletedAt', 'extra']) {
         invalid.push({ ...valid, [field]: field === 'status' ? 'CLOSED' : randomUUID() });
       }
       for (const body of invalid) {

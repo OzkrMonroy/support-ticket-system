@@ -51,6 +51,7 @@ enum TicketStatus {
 }
 
 model Ticket {
+  deletedAt    DateTime?
   id           String         @id @default(uuid()) @db.Uuid
   title        String
   description  String

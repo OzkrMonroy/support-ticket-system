@@ -24,7 +24,7 @@ No worker persistence, notification provider, or queue topology is decided by th
 | Path under `backend/` | Responsibility |
 | --- | --- |
 | `src/server.js` | Environment loading, Express/CORS/JSON setup, route mounting, health endpoint, parsing error handler, HTTP listener |
-| `src/routes/` | Authentication, user, and ticket creation/read/update endpoints; middleware order |
+| `src/routes/` | Authentication, user, and ticket creation/read/update/deletion endpoints; middleware order |
 | `src/controllers/` | Authentication/session business logic and direct Prisma user/ticket operations |
 | `src/middleware/` | Bearer JWT authentication, current database account/role checks, administrator authorization, Zod validation adapter |
 | `src/schemas/` | Zod body/parameter schemas; no environment validation |
@@ -36,7 +36,7 @@ There is no service/repository layer. See the [backend README](../backend/README
 
 ## Database model
 
-[backend/prisma/schema.prisma](../backend/prisma/schema.prisma) is the source of truth for database models. The initial migration creates User, RefreshSession, and Role; the HU-07 migration adds Ticket, TicketPriority, and TicketStatus. The ER diagram includes persisted scalar fields only; the Prisma relation fields `user` and `refreshSessions` are represented by the relationship.
+[backend/prisma/schema.prisma](../backend/prisma/schema.prisma) is the source of truth for database models. The initial migration creates User, RefreshSession, and Role; the HU-07 migration adds Ticket, TicketPriority, and TicketStatus; the HU-10 migration adds nullable Ticket.deletedAt. The ER diagram includes persisted scalar fields only; the Prisma relation fields `user` and `refreshSessions` are represented by the relationship.
 
 ```mermaid
 erDiagram
@@ -53,6 +53,7 @@ erDiagram
         String assignedToId FK "UUID; nullable"
         DateTime createdAt "default now()"
         DateTime updatedAt "updatedAt"
+        DateTime deletedAt "nullable; soft deletion"
     }
     User {
         String id PK "UUID; default uuid()"
@@ -84,6 +85,7 @@ A user can have zero or more sessions; every session belongs to one user. Both I
 | GET | `/api/tickets` | Active account; list all (ADMIN), own (CLIENT), or assigned (TECHNICIAN) tickets |
 | GET | `/api/tickets/:id` | Same visibility; missing or inaccessible tickets return 404 |
 | PATCH | `/api/tickets/:id` | Same visibility; role/state-based partial updates under approved HU-09 |
+| DELETE | `/api/tickets/:id` | Soft delete: CLIENT owns OPEN ticket; ADMIN any status; TECHNICIAN forbidden |
 | GET | `/api/health` | Public HTTP health |
 | POST | `/api/auth/login` | Public credential exchange for active accounts |
 | POST | `/api/auth/refresh` | Refresh-token exchange |
@@ -109,6 +111,8 @@ The [backend README](../backend/README.md) was reconciled with current authoriza
 
 Academic registration compliance and the proposed ticket/queue/frontend work are tracked in the [roadmap](ROADMAP.md). This document does not prescribe their future schema or detailed architecture.
 
-Ticket creation uses strict Zod body validation (trimmed title: 1–200 characters; description: 1–5000; required priority enum). Authentication and current-role authorization precede validation. Only persisted ticket scalar fields are returned; server-owned fields and unknown body keys are rejected. HU-08 adds list/detail reads using a shared Prisma visibility filter applied in the database. Lists sort by createdAt descending, then id descending. Both reads include creator/assignee relations selecting only id, name, email, and role; absent assignees are null. Detail UUID validation follows authentication. Missing and inaccessible tickets share a 404 response. Deletion and jobs are not implemented. HU-08 is user-approved.
+Ticket creation uses strict Zod body validation (trimmed title: 1–200 characters; description: 1–5000; required priority enum). Authentication and current-role authorization precede validation. Only persisted ticket scalar fields are returned; server-owned fields and unknown body keys are rejected. HU-08 adds list/detail reads using a shared Prisma visibility filter applied in the database. Lists sort by createdAt descending, then id descending. Both reads include creator/assignee relations selecting only id, name, email, and role; absent assignees are null. Detail UUID validation follows authentication. Missing and inaccessible tickets share a 404 response. Jobs are not implemented. HU-08 is user-approved.
 
 HU-09 adds strict partial update validation using the creation field constraints and the existing status enum. Controller logic checks the persisted starting state before writing: CLIENT edits own OPEN content or closes own RESOLVED tickets; TECHNICIAN advances assigned tickets from OPEN to IN_PROGRESS and IN_PROGRESS to RESOLVED; ADMIN edits non-CLOSED content, performs normal forward transitions, or closes directly. CLOSED is terminal. Forbidden operations return 403 without partial writes. A Prisma transaction reads the visible ticket, conditionally updates against the starting status and visibility, and returns the same safe relations as detail reads. No models, migrations, assignment API, or new layers were added. HU-09 is user-approved.
+
+HU-10 adds nullable Ticket.deletedAt through an additive migration. Normal list, detail, and update queries require deletedAt to be null alongside role visibility. DELETE preserves the row and status, sets deletedAt, and lets Prisma manage updatedAt. Missing, invisible, and already-deleted tickets return 404; visible but forbidden deletions return 403. Conditional writes recheck visibility, deletion state, and the CLIENT OPEN requirement. No restore, trash view, or new architectural layer is added. HU-10 is tested and user-approved; EP-02 backend ticket CRUD is complete.

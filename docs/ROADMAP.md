@@ -4,14 +4,14 @@
 
 Statuses: `Completed` = explicitly approved and supported by repository records; `In progress` = work underway or awaiting approval; `Pending` = agreed work not yet delivered; `Proposed` = unapproved scope or breakdown.
 
-TASK-03 confirms prior approval of EP-01, HU-01 through HU-06, TASK-01, and TASK-02. Their source code and implementation records support delivery. Historical verification results belong to those records; they were not rerun for this documentation task. HU-07, HU-08, and HU-09 were subsequently tested and explicitly approved by the user. Remaining future IDs and story boundaries below are proposals, not approved specifications.
+TASK-03 confirms prior approval of EP-01, HU-01 through HU-06, TASK-01, and TASK-02. Their source code and implementation records support delivery. Historical verification results belong to those records; they were not rerun for this documentation task. HU-07 through HU-10 were subsequently tested and explicitly approved by the user. Remaining future IDs and story boundaries below are proposals, not approved specifications.
 
 ## Epics
 
 | ID | Purpose | Status |
 | --- | --- | --- |
 | EP-01 | Authentication, authorization, and basic account administration (backend scope) | Completed |
-| EP-02 | Complete ticket CRUD and define ticket access/workflow | Proposed |
+| EP-02 | Complete ticket CRUD and define ticket access/workflow | Completed |
 | EP-03 | Process at least two asynchronous jobs with RabbitMQ | Proposed |
 | EP-04 | Build the Angular SPA and integrate API/job feedback | Proposed |
 | EP-05 | Finish academic documentation, security review, and integrated demonstration | Proposed |
@@ -36,9 +36,9 @@ Completion applies to the approved backend stories; Angular authentication scree
 | [HU-07](tasks/HU-07.md) | Create support tickets; user-approved ([record](implementation/HU-07.md)) | Completed |
 | [HU-08](tasks/HU-08.md) | List tickets and view ticket details with role-based visibility; user-approved ([record](implementation/HU-08.md)) | Completed |
 | [HU-09](tasks/HU-09.md) | Update tickets with role/state rules; user-approved ([record](implementation/HU-09.md)) | Completed |
-| HU-10 | Delete tickets under approved permissions | Proposed |
+| [HU-10](tasks/HU-10.md) | Soft delete tickets; tested and user-approved ([record](implementation/HU-10.md)) | Completed |
 
-Basis: full CRUD of the chosen entity (PDF pages 1-2); clients, tickets, and technicians (page 5). HU-07 defines the approved creation fields and permissions; HU-08 defines approved read visibility. HU-09 specifies update permissions and transitions; its implementation is user-approved. Deletion semantics require agreement. A status board is an optional proposal, not part of the approved baseline.
+Basis: full CRUD of the chosen entity (PDF pages 1-2); clients, tickets, and technicians (page 5). HU-07 defines the approved creation fields and permissions; HU-08 defines approved read visibility. HU-09 specifies update permissions and transitions; its implementation is user-approved. HU-10 specifies soft deletion; its implementation is tested and user-approved. EP-02 is complete with HU-07 through HU-10 approved. A status board is an optional proposal, not part of the approved baseline.
 
 ### EP-03: Asynchronous Processing
 
@@ -83,7 +83,7 @@ PDF pages 2-4 require security middleware, collaboration evidence, a maximum 10-
 ## Gaps and next work
 
 1. Clarify registration compliance: the PDF requires registration/demo, but approved HU-04 provides administrator-created accounts and excludes public registration. Keep EP-01 approved; record any additional agreed scope separately.
-2. Specify the remaining ticket deletion scope (HU-10), then the two queue jobs and Angular integration. HU-07 creation and HU-08 reads are approved; HU-09 updates are approved; subsequent proposed IDs are not approved tasks.
+2. Specify the two queue jobs and Angular integration. EP-02 (HU-07 through HU-10) is tested and approved; subsequent proposed IDs are not approved tasks.
 3. Plan final manuals, security review, collaboration evidence, and demonstration against the [PDF](requirements/project-requirements.pdf).
 
 No conflict was found between the selected stack and the PDF's suggested alternatives. Existing CORS, password hashing, JWT checks, and request validation cover part of basic security; Helmet or an equivalent security-header policy is not present and requires review.
