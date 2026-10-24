@@ -94,6 +94,9 @@ Do not introduce TypeScript into the backend.
 - Write clear setup instructions for developers unfamiliar with the project.
 - Use `docs/PROJECT.md` for project goals, `docs/ROADMAP.md` for planned work and status, and `docs/ARCHITECTURE.md` for technical structure and diagrams when those documents exist.
 - Keep `backend/prisma/schema.prisma` as the source of truth for database models; diagrams are explanatory and must match it.
+- Keep epic story tables in `docs/ROADMAP.md` consistent, using the columns `Story | Description | Status | Evidence`.
+- Link story IDs to `tasks/HU-XX.md` and evidence to `implementation/HU-XX.md` (paths relative to `docs/ROADMAP.md`) only when the corresponding files exist.
+- Keep descriptions concise, place implementation links in the `Evidence` column, and preserve existing statuses unless a change is explicitly approved.
 
 ## Working with Codex
 

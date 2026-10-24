@@ -31,43 +31,43 @@ Completion applies to the approved backend stories; Angular authentication scree
 
 ### EP-02: Ticket Management
 
-| Story ID | Description | Status |
-| --- | --- | --- |
-| [HU-07](tasks/HU-07.md) | Create support tickets; user-approved ([record](implementation/HU-07.md)) | Completed |
-| [HU-08](tasks/HU-08.md) | List tickets and view ticket details with role-based visibility; user-approved ([record](implementation/HU-08.md)) | Completed |
-| [HU-09](tasks/HU-09.md) | Update tickets with role/state rules; user-approved ([record](implementation/HU-09.md)) | Completed |
-| [HU-10](tasks/HU-10.md) | Soft delete tickets; tested and user-approved ([record](implementation/HU-10.md)) | Completed |
+| Story | Description | Status | Evidence |
+| --- | --- | --- | --- |
+| [HU-07](tasks/HU-07.md) | Create support tickets | Completed | [Implementation](implementation/HU-07.md) |
+| [HU-08](tasks/HU-08.md) | List tickets and view details with role-based visibility | Completed | [Implementation](implementation/HU-08.md) |
+| [HU-09](tasks/HU-09.md) | Update tickets with role and state rules | Completed | [Implementation](implementation/HU-09.md) |
+| [HU-10](tasks/HU-10.md) | Soft delete tickets | Completed | [Implementation](implementation/HU-10.md) |
 
 Basis: full CRUD of the chosen entity (PDF pages 1-2); clients, tickets, and technicians (page 5). HU-07 defines the approved creation fields and permissions; HU-08 defines approved read visibility. HU-09 specifies update permissions and transitions; its implementation is user-approved. HU-10 specifies soft deletion; its implementation is tested and user-approved. EP-02 is complete with HU-07 through HU-10 approved. A status board is an optional proposal, not part of the approved baseline.
 
 ### EP-03: Asynchronous Processing
 
-| Proposed story ID | Description | Status |
-| --- | --- | --- |
-| HU-11 | Automatically assign tickets according to priority | Proposed |
-| HU-12 | Send follow-up notifications; choose delivery channel | Proposed |
-| HU-13 | Expose job status and demonstrate retries and failure handling | Proposed |
+| Story | Description | Status | Evidence |
+| --- | --- | --- | --- |
+| HU-11 | Automatically assign tickets according to priority | Proposed | — |
+| HU-12 | Send follow-up notifications; choose delivery channel | Proposed | — |
+| HU-13 | Expose job status and demonstrate retries and failure handling | Proposed | — |
 
 Basis: the two ticket-specific job ideas on PDF page 5 and queue/frontend/rubric requirements on pages 1-2. RabbitMQ is the team's chosen broker. Worker design, assignment rules, delivery provider, retry policy, and job-state storage/API remain undecided; none is implemented.
 
 ### EP-04: Angular SPA
 
-| Proposed story ID | Description | Status |
-| --- | --- | --- |
-| HU-14 | Integrate login, refresh/logout, profile, and role-aware navigation | Proposed |
-| HU-15 | Provide validated ticket CRUD forms/views and action feedback | Proposed |
-| HU-16 | Display asynchronous job status and results | Proposed |
-| HU-17 | Provide administrator account-management screens | Proposed |
+| Story | Description | Status | Evidence |
+| --- | --- | --- | --- |
+| HU-14 | Integrate login, refresh/logout, profile, and role-aware navigation | Proposed | — |
+| HU-15 | Provide validated ticket CRUD forms/views and action feedback | Proposed | — |
+| HU-16 | Display asynchronous job status and results | Proposed | — |
+| HU-17 | Provide administrator account-management screens | Proposed | — |
 
 Use standalone components, Reactive Forms, and HTTP services per AGENTS.md. Academic SPA requirements are on PDF pages 1-2; precise screens and token handling require specification. Account-management screens are proposed integration of existing backend capabilities.
 
 ### EP-05: Academic Delivery
 
-| Proposed story ID | Description | Status |
-| --- | --- | --- |
-| HU-18 | Complete architecture submission, technical/user manuals, and screenshots | Proposed |
-| HU-19 | Document actual team responsibilities/collaboration and rehearse integrated demo | Proposed |
-| HU-20 | Review security middleware and validate end-to-end academic acceptance | Proposed |
+| Story | Description | Status | Evidence |
+| --- | --- | --- | --- |
+| HU-18 | Complete architecture submission, technical/user manuals, and screenshots | Proposed | — |
+| HU-19 | Document actual team responsibilities/collaboration and rehearse integrated demo | Proposed | — |
+| HU-20 | Review security middleware and validate end-to-end academic acceptance | Proposed | — |
 
 PDF pages 2-4 require security middleware, collaboration evidence, a maximum 10-page architecture document (including cover/team/course/date, ER/auth/queue flows and security), installation/API/worker documentation, a user manual, and a maximum 10-minute presentation. Team member names and assignments are not recorded; do not invent them. Delivery: October 31, 2026, in person.
 
