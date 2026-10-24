@@ -92,7 +92,7 @@ A user can have zero or more sessions; every session belongs to one user. Both I
 | GET | `/api/users` | ADMIN; list public user fields |
 | PATCH | `/api/users/:id/deactivate` | ADMIN; deactivate another account |
 
-1. Login validates request fields, finds an active user by exact email, and compares the bcrypt password hash. It returns basic user information, an HS256 access JWT (15 minutes, user ID and role claims), and a random opaque refresh token.
+1. Login validates request fields, finds the user by exact email, and compares the bcrypt password hash. Unknown emails and incorrect passwords return a generic 401. Only after password verification, an inactive account returns 403 with a deactivation message, without issuing tokens or creating a session. Successful login returns basic user information, an HS256 access JWT (15 minutes, user ID and role claims), and a random opaque refresh token.
 2. Refresh tokens contain 32 random bytes encoded as hex. Only SHA-256 hashes are stored, with expiration and optional revocation. Lifetime defaults to seven days via `REFRESH_TOKEN_EXPIRES_DAYS`.
 3. Refresh checks session validity and active user status. A transaction conditionally revokes the old session and creates its replacement. Only one concurrent exchange can consume a token; replacements receive a fresh lifetime.
 4. Protected routes verify the Bearer JWT signature, algorithm, expiration, and claims, then fetch the account from PostgreSQL. Missing/inactive accounts are rejected. Authorization uses the current database role, not a stale JWT role. ADMIN checks precede protected request-field validation.

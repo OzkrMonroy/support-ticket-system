@@ -164,7 +164,9 @@ test('administrators create, list, and deactivate users with protected access', 
       const stored = await prisma.user.findUniqueOrThrow({ where: { id: target.id } });
       assert.equal(stored.isActive, false);
       assert.equal(stored.passwordHash, target.passwordHash);
-      assert.equal((await login(target.email)).status, 401);
+      assert.deepEqual(await login(target.email), {
+        status: 403, body: { message: 'Your account has been deactivated. Contact an administrator.' },
+      });
       assert.equal((await request('auth/refresh', { refreshToken: signedIn.body.refreshToken })).status, 401);
       assert.equal((await request('users', undefined, header, 'GET')).status, 401);
       assert.equal((await request('users/me', undefined, header, 'GET')).status, 401);

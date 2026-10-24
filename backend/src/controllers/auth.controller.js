@@ -35,8 +35,14 @@ export async function login(req, res) {
 
   try {
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || !user.isActive || !(await bcrypt.compare(password, user.passwordHash))) {
+    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
       return res.status(401).json({ message: 'Invalid credentials.' });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({
+        message: 'Your account has been deactivated. Contact an administrator.',
+      });
     }
 
     const accessToken = signAccessToken(user);

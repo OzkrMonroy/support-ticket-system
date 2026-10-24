@@ -70,22 +70,28 @@ test('login validates requests, credentials, active status, roles, and signed to
       adminSessionIds.push(session.id);
     });
 
-    await t.test('invalid credentials and inactive accounts share the same 401 response', async () => {
+    await t.test('incorrect passwords and unknown emails return 401; inactive status requires a correct password', async () => {
       const active = await prisma.user.findUniqueOrThrow({ where: { id: createdIds[0] } });
       const inactive = await prisma.user.create({ data: {
         name: 'Inactive Test', email: `${randomUUID()}@example.test`, passwordHash,
         role: 'CLIENT', isActive: false,
       } });
       createdIds.push(inactive.id);
+      const sessionCount = await prisma.refreshSession.count({ where: { userId: active.id } });
       for (const credentials of [
         { email: `${randomUUID()}@example.test`, password },
         { email: active.email, password: 'wrong-password' },
-        { email: inactive.email, password },
+        { email: inactive.email, password: 'wrong-password' },
       ]) {
         assert.deepEqual(await request(credentials), {
           status: 401, body: { message: 'Invalid credentials.' },
         });
       }
+      assert.deepEqual(await request({ email: inactive.email, password }), {
+        status: 403, body: { message: 'Your account has been deactivated. Contact an administrator.' },
+      });
+      assert.equal(await prisma.refreshSession.count({ where: { userId: inactive.id } }), 0);
+      assert.equal(await prisma.refreshSession.count({ where: { userId: active.id } }), sessionCount);
     });
 
     await t.test('malformed email returns a field error', async () => {

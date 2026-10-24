@@ -108,7 +108,7 @@ Send `POST http://localhost:3000/api/auth/login` with `Content-Type: application
 {"email":"admin@example.com","password":"replace-with-your-local-password"}
 ```
 
-A successful response is HTTP 200 with `accessToken`, `refreshToken`, and `user` (`id`, `name`, `email`, `role`). The signed JWT contains `id`, `role`, and issue/expiration timestamps; it expires after 15 minutes. Missing or invalid fields and malformed JSON return 400. Unknown users, wrong passwords, and inactive users all return 401 with `{"message":"Invalid credentials."}`. Unexpected backend failures return a generic 500 response.
+A successful response is HTTP 200 with `accessToken`, `refreshToken`, and `user` (`id`, `name`, `email`, `role`). The signed JWT contains `id`, `role`, and issue/expiration timestamps; it expires after 15 minutes. Missing or invalid fields and malformed JSON return 400. Unknown users and wrong passwords (including for inactive accounts) return 401 with `{"message":"Invalid credentials."}`. Only after verifying the password, an inactive account returns 403 with `{"message":"Your account has been deactivated. Contact an administrator."}`. Rejected logins return no tokens and create no refresh sessions. Unexpected backend failures return a generic 500 response.
 
 Passwords, password hashes, and the signing secret are never returned. Treat both tokens as private credentials. Administrator-only user creation is available as described below. Frontend screens are not implemented.
 

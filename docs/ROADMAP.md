@@ -78,6 +78,7 @@ PDF pages 2-4 require security middleware, collaboration evidence, a maximum 10-
 | [TASK-01](tasks/TASK-01.md) | Backend foundation, PostgreSQL, Prisma migration, administrator seed | Completed | [Implementation](implementation/TASK-01.md) |
 | [TASK-02](tasks/TASK-02.md) | Zod request validation and consistent field errors | Completed | [Implementation](implementation/TASK-02.md) |
 | [TASK-03](tasks/TASK-03.md) | Project overview, roadmap, current architecture | Completed | [Implementation](implementation/TASK-03.md); user-approved finalization |
+| [TASK-04](tasks/TASK-04.md) | Disclose inactive login status only after password verification | Completed | [Implementation](implementation/TASK-04.md); user-approved |
 
 ## Gaps and next work
 
