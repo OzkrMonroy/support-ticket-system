@@ -14,6 +14,49 @@ function visibilityFilter(user) {
   return { assignedToId: user.id };
 }
 
+function canUpdateTicket(role, ticket, changes) {
+  if (ticket.status === 'CLOSED') return false;
+  const hasContent = Object.keys(changes).some((field) => field !== 'status');
+  if (role === 'CLIENT') {
+    if (ticket.status === 'OPEN') return changes.status === undefined;
+    return ticket.status === 'RESOLVED' && !hasContent && changes.status === 'CLOSED';
+  }
+  if (role === 'TECHNICIAN' && (hasContent || ticket.status === 'RESOLVED')) return false;
+  if (changes.status === undefined) return role === 'ADMIN';
+  const nextStatus = { OPEN: 'IN_PROGRESS', IN_PROGRESS: 'RESOLVED', RESOLVED: 'CLOSED' };
+  return changes.status === nextStatus[ticket.status] ||
+    (role === 'ADMIN' && changes.status === 'CLOSED');
+}
+
+export async function updateTicket(req, res) {
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const where = { id: req.params.id, ...visibilityFilter(req.user) };
+      const ticket = await tx.ticket.findFirst({ where });
+      if (!ticket) return { status: 404, body: { message: 'Ticket not found.' } };
+      if (!canUpdateTicket(req.user.role, ticket, req.body)) {
+        if (req.user.role === 'CLIENT' && req.body.status === 'CLOSED' && ticket.status !== 'RESOLVED') {
+          return { status: 403, body: { message: 'Clients can only close resolved tickets.' } };
+        }
+        return { status: 403, body: { message: 'Ticket update is not permitted.' } };
+      }
+      // Recheck the starting state and visibility when writing to prevent stale transitions.
+      const updated = await tx.ticket.updateMany({
+        where: { ...where, status: ticket.status }, data: req.body,
+      });
+      if (updated.count === 0) {
+        return { status: 403, body: { message: 'Ticket update is not permitted.' } };
+      }
+      return { status: 200, body: await tx.ticket.findUnique({
+        where: { id: ticket.id }, include: ticketRelations,
+      }) };
+    });
+    return res.status(result.status).json(result.body);
+  } catch {
+    return res.status(500).json({ message: 'Unable to update ticket.' });
+  }
+}
+
 export async function listTickets(req, res) {
   try {
     const tickets = await prisma.ticket.findMany({

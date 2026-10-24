@@ -1,6 +1,6 @@
 # Support Ticket System
 
-University project for managing technical support tickets. The backend uses Node.js, Express, JavaScript ESM, PostgreSQL 17, and Prisma 6.19.3. It provides a health endpoint, login with short-lived access JWTs, refresh-token rotation, logout, administrator account management, own-profile retrieval, and ticket creation/listing/details. Ticket updates/deletion, Angular, and RabbitMQ are pending later tasks.
+University project for managing technical support tickets. The backend uses Node.js, Express, JavaScript ESM, PostgreSQL 17, and Prisma 6.19.3. It provides a health endpoint, login with short-lived access JWTs, refresh-token rotation, logout, administrator account management, own-profile retrieval, and ticket creation/listing/details and role-based updates. Ticket deletion, Angular, and RabbitMQ are pending later tasks.
 
 ## Prerequisites
 
@@ -148,7 +148,21 @@ Send `POST http://localhost:3000/api/tickets` with `Content-Type: application/js
 
 Title and description are trimmed, required, and limited to 200 and 5000 characters respectively. Priority must be `LOW`, `MEDIUM`, or `HIGH`. Additional fields are rejected with 400 using the existing `message`/`errors` envelope; unknown-field errors have an empty `errors` object because the shared validator reports only field paths. Do not send IDs, status, assignment, or timestamps.
 
-Success returns 201 with persisted scalar fields: `id`, `title`, `description`, `priority`, `status`, `createdById`, `assignedToId`, `createdAt`, and `updatedAt`. The creator comes from authentication, status defaults to `OPEN`, and assignment is `null`. User records are not included. Missing/invalid/expired authentication and inactive accounts receive 401; TECHNICIAN receives 403 before field validation. Unexpected database errors return a generic 500 response. Updates, deletion, assignment, and notifications are not implemented.
+Success returns 201 with persisted scalar fields: `id`, `title`, `description`, `priority`, `status`, `createdById`, `assignedToId`, `createdAt`, and `updatedAt`. The creator comes from authentication, status defaults to `OPEN`, and assignment is `null`. User records are not included. Missing/invalid/expired authentication and inactive accounts receive 401; TECHNICIAN receives 403 before field validation. Unexpected database errors return a generic 500 response. Deletion, assignment, and notifications are not implemented.
+
+## Update support tickets
+
+Send `PATCH http://localhost:3000/api/tickets/<id>` with a Bearer access token for an active account and a partial JSON body, for example `{"title":"Updated title","priority":"HIGH"}` or `{"status":"IN_PROGRESS"}`.
+
+Only `title`, `description`, `priority`, and `status` are accepted; at least one field is required. Text uses the creation constraints and trimming. Unknown/system-managed fields, invalid values, and malformed UUIDs return the existing 400 validation envelope. Authentication failures return 401. Missing or invisible tickets return the same 404 as detail reads; forbidden actions on visible tickets return 403.
+
+| Role | Content changes | Status changes |
+| --- | --- | --- |
+| CLIENT | Own OPEN tickets only | Own RESOLVED ticket to CLOSED; status only |
+| TECHNICIAN | None | Assigned tickets only: OPEN to IN_PROGRESS, IN_PROGRESS to RESOLVED |
+| ADMIN | Any ticket except CLOSED | OPEN to IN_PROGRESS, IN_PROGRESS to RESOLVED, RESOLVED to CLOSED; direct close from OPEN or IN_PROGRESS |
+
+CLOSED is terminal. Same-status requests are forbidden. Mixed requests must satisfy all rules against the persisted starting status; rejected requests apply no changes. Assignment and creator/creation timestamp remain unchanged; Prisma manages `updatedAt`. Success returns 200 using the same safe representation as detail reads. No assignment endpoint is available. HU-09 is user-approved.
 
 ## List and view support tickets
 
@@ -199,7 +213,7 @@ Create a PostgreSQL connection with host `localhost`, port from `POSTGRES_PORT`,
 
 ## Checks
 
-Integration tests use Node's built-in test runner to verify health, the administrator seed, login, refresh rotation, logout, administrator-only user creation/listing/deactivation, current-account authorization, own-profile retrieval, ticket creation, role-based ticket listing/details, and field validation. Start PostgreSQL, apply migrations, and configure `ADMIN_*` first. Tests use the configured database and leave the seeded administrator in place. The password in `.env` must match the seeded administrator. HTTP tests temporarily use ports `32101`, `32102`, `32103`, `32104`, `32105`, and `32106` and supply their own signing secrets. Login and refresh fixtures use unique emails; their users and sessions are removed after the test. Ticket tests remove only their own tickets and user fixtures. The administrator login test removes only the session it creates.
+Integration tests use Node's built-in test runner to verify health, the administrator seed, login, refresh rotation, logout, administrator-only user creation/listing/deactivation, current-account authorization, own-profile retrieval, ticket creation, role-based ticket listing/details, ticket update permissions/workflow, and field validation. Start PostgreSQL, apply migrations, and configure `ADMIN_*` first. Tests use the configured database and leave the seeded administrator in place. The password in `.env` must match the seeded administrator. HTTP tests temporarily use ports `32101`, `32102`, `32103`, `32104`, `32105`, `32106`, and `32107` and supply their own signing secrets. Login and refresh fixtures use unique emails; their users and sessions are removed after the test. Ticket tests remove only their own tickets and user fixtures. The administrator login test removes only the session it creates.
 
 From `backend/`:
 
