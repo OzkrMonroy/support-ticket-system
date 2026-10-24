@@ -24,7 +24,7 @@ No worker persistence, notification provider, or queue topology is decided by th
 | Path under `backend/` | Responsibility |
 | --- | --- |
 | `src/server.js` | Environment loading, Express/CORS/JSON setup, route mounting, health endpoint, parsing error handler, HTTP listener |
-| `src/routes/` | Authentication, user, and ticket creation endpoints; middleware order |
+| `src/routes/` | Authentication, user, and ticket creation/read endpoints; middleware order |
 | `src/controllers/` | Authentication/session business logic and direct Prisma user/ticket operations |
 | `src/middleware/` | Bearer JWT authentication, current database account/role checks, administrator authorization, Zod validation adapter |
 | `src/schemas/` | Zod body/parameter schemas; no environment validation |
@@ -81,6 +81,8 @@ A user can have zero or more sessions; every session belongs to one user. Both I
 | Method | Route | Access/purpose |
 | --- | --- | --- |
 | POST | `/api/tickets` | CLIENT or ADMIN; create an OPEN, unassigned ticket owned by the authenticated user |
+| GET | `/api/tickets` | Active account; list all (ADMIN), own (CLIENT), or assigned (TECHNICIAN) tickets |
+| GET | `/api/tickets/:id` | Same visibility; missing or inaccessible tickets return 404 |
 | GET | `/api/health` | Public HTTP health |
 | POST | `/api/auth/login` | Public credential exchange for active accounts |
 | POST | `/api/auth/refresh` | Refresh-token exchange |
@@ -106,4 +108,4 @@ The [backend README](../backend/README.md) was reconciled with current authoriza
 
 Academic registration compliance and the proposed ticket/queue/frontend work are tracked in the [roadmap](ROADMAP.md). This document does not prescribe their future schema or detailed architecture.
 
-Ticket creation uses strict Zod body validation (trimmed title: 1–200 characters; description: 1–5000; required priority enum). Authentication and current-role authorization precede validation. Only persisted ticket scalar fields are returned; server-owned fields and unknown body keys are rejected. No ticket reads, updates, deletion, or jobs are implemented.
+Ticket creation uses strict Zod body validation (trimmed title: 1–200 characters; description: 1–5000; required priority enum). Authentication and current-role authorization precede validation. Only persisted ticket scalar fields are returned; server-owned fields and unknown body keys are rejected. HU-08 adds list/detail reads using a shared Prisma visibility filter applied in the database. Lists sort by createdAt descending, then id descending. Both reads include creator/assignee relations selecting only id, name, email, and role; absent assignees are null. Detail UUID validation follows authentication. Missing and inaccessible tickets share a 404 response. Updates, deletion, and jobs are not implemented. HU-08 is user-approved.
