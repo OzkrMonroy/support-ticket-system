@@ -1,6 +1,6 @@
 import amqp from 'amqplib';
 
-export const assignmentQueue = 'ticket-assignment';
+export const assignmentQueue = process.env.ASSIGNMENT_QUEUE || 'ticket-assignment';
 export const queueOptions = { durable: true, arguments: { 'x-queue-type': 'classic', 'x-max-priority': 3 } };
 export const priorities = { LOW: 1, MEDIUM: 2, HIGH: 3 };
 

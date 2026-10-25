@@ -4,7 +4,7 @@
 
 The application is a JavaScript ESM Express REST backend connected through Prisma 6.19.3 to PostgreSQL 17. Docker Compose runs PostgreSQL and RabbitMQ 4.2 with persistent named volumes and health checks. Express runs separately. CORS is configured for the intended frontend origin; the health endpoint checks HTTP availability only.
 
-Angular is planned; RabbitMQ assignment is implemented under HU-11. Ticket creation is implemented for CLIENT and ADMIN accounts (approved HU-07). There is no frontend. The API publishes assignment messages and a separate Node worker consumes them. Dashed arrows below show planned integration, not existing runtime behavior.
+Angular is planned; RabbitMQ assignment is implemented under HU-11. Ticket creation is implemented for CLIENT and ADMIN accounts (approved HU-07). There is no frontend. The API publishes assignment and notification messages; separate Node workers consume each queue. Dashed arrows below show planned integration, not existing runtime behavior.
 
 ```mermaid
 flowchart LR
@@ -13,12 +13,15 @@ flowchart LR
     Prisma --> DB[(PostgreSQL 17)]
     Seed[Administrator seed] --> Prisma
     Angular[Angular SPA - planned] -.->|REST API| API
-    API -->|Confirmed persistent ticket ID / priority| MQ[RabbitMQ]
+    API -->|Confirmed persistent assignment / notification jobs| MQ[RabbitMQ]
     MQ -->|Manual ack / prefetch 1| Worker[Assignment worker]
     Worker --> Prisma
+    Worker -->|Assignment notification| MQ
+    MQ -->|Notification queue / manual ack| MailWorker[Notification worker]
+    MailWorker -->|Nodemailer / Gmail TLS| SMTP[Gmail SMTP]
 ```
 
-One durable classic priority queue, `ticket-assignment`, is used. No job tables or notification provider exist.
+Two durable classic queues are used: priority queue `ticket-assignment` and independent `ticket-notification`. Nodemailer sends via Gmail SMTP in the notification worker. No job tables are added.
 
 ## Backend layout
 
@@ -28,8 +31,8 @@ One durable classic priority queue, `ticket-assignment`, is used. No job tables 
 | `src/routes/` | Authentication, user, and ticket creation/read/update/deletion endpoints; middleware order |
 | `src/controllers/` | Authentication/session business logic and direct Prisma user/ticket operations |
 | `src/middleware/` | Bearer JWT authentication, current database account/role checks, administrator authorization, Zod validation adapter |
-| `src/jobs/` | RabbitMQ queue declaration/publishing and ticket assignment policy/delivery handling |
-| `src/workers/assignment.worker.js` | Separate assignment consumer with prefetch 1 and manual acknowledgements |
+| `src/jobs/` | RabbitMQ queue declaration/publishing, assignment policy, notification templates/delivery handling and SMTP configuration |
+| `src/workers/assignment.worker.js`, `src/workers/notification.worker.js` | Separate assignment and notification consumers with prefetch 1 and manual acknowledgements |
 | `scripts/publish-assignment.js` | Manual publication/recovery for an existing ticket ID |
 | `src/schemas/` | Zod body/parameter schemas; no environment validation |
 | `prisma/` | Database schema, enums, initial and ticket migrations |
@@ -128,3 +131,11 @@ HU-10 adds nullable Ticket.deletedAt through an additive migration. Normal list,
 Expected no-ops and no-technician outcomes are acknowledged. Unexpected failures are logged and nacked without requeue (discarded, no automatic retries). Broker disconnection stops the worker; restart manually. API publish failures after persistence return 503 with ticketId rather than falsely claiming success; the original ticket remains available. `scripts/publish-assignment.js` provides manual recovery using current database priority. Publisher confirmation uncertainty can produce harmless duplicates. A crash between commit and publish is not atomic and requires manual recovery; no outbox, distributed transaction, generic job storage or HU-13 retry framework is introduced. Priority orders pending messages only; no strict global ordering under concurrency is promised. See backend README for startup and recovery.
 
 The worker consumes only RabbitMQ deliveries; it does not scan for unassigned tickets. Skip logs include the ticket ID and one fixed reason: `not-found`, `soft-deleted`, `already-assigned`, `not-open`, or `eligibility-changed` when the conditional write no longer matches. No ticket content or user details are logged. HU-11 is tested and user-approved.
+
+## HU-12 email notification boundary (user-approved)
+
+After database commit, creation and actual RESOLVED/CLOSED transitions publish confirmed persistent snapshots to the notification queue. Creation still attempts assignment publication when notification publication fails. Publication failure returns HTTP 503 with the persisted ticket ID; the database operation is not reversed. The assignment worker publishes TICKET_ASSIGNED only after its conditional write succeeds, using the selected technician and ticket snapshot. Failure to publish this notification is logged without reversing assignment or replaying it. Duplicate assignments and rejected/no-op HTTP changes publish nothing.
+
+The notification worker alone configures Nodemailer from SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_APP_PASSWORD/EMAIL_FROM. Gmail port 465 uses TLS; 587 requires STARTTLS. HTML/text templates include only ticket ID, title, translated priority/status. Recipient selection uses creator ID for creation/resolution/closure and assignee ID for assignment. RabbitMQ carries recipient email, not full user records or descriptions. Each queue can be named through NOTIFICATION_QUEUE/ASSIGNMENT_QUEUE for test isolation.
+
+One SMTP attempt per delivery, manual ack after acceptance, and nack without requeue on invalid messages or send failures match HU-11's bounded handling. SMTP errors are sanitized; logs identify event/ticket and safe category/status. No persistent deduplication, retry framework, job API, schema change or outbox is introduced. Redelivery after SMTP acceptance can duplicate mail; commit/publish gaps and terminal rejection can lose it. SMTP acceptance is not inbox delivery. Workers require restart after broker disconnect. See backend README for configuration, manual Gmail verification and recovery limitations.

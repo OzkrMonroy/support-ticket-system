@@ -4,7 +4,7 @@
 
 Statuses: `Completed` = explicitly approved and supported by repository records; `In progress` = work underway or awaiting approval; `Pending` = agreed work not yet delivered; `Proposed` = unapproved scope or breakdown.
 
-TASK-03 confirms prior approval of EP-01, HU-01 through HU-06, TASK-01, and TASK-02. Their source code and implementation records support delivery. Historical verification results belong to those records; they were not rerun for this documentation task. HU-07 through HU-11 were subsequently tested and explicitly approved by the user. Remaining future IDs and story boundaries below are proposals, not approved specifications.
+TASK-03 confirms prior approval of EP-01, HU-01 through HU-06, TASK-01, and TASK-02. Their source code and implementation records support delivery. Historical verification results belong to those records; they were not rerun for this documentation task. HU-07 through HU-12 were subsequently tested and explicitly approved by the user. Remaining future IDs and story boundaries below are proposals, not approved specifications.
 
 ## Epics
 
@@ -45,10 +45,10 @@ Basis: full CRUD of the chosen entity (PDF pages 1-2); clients, tickets, and tec
 | Story | Description | Status | Evidence |
 | --- | --- | --- | --- |
 | [HU-11](tasks/HU-11.md) | Automatically assign tickets according to priority | Completed | [Implementation](implementation/HU-11.md) |
-| HU-12 | Send follow-up notifications; choose delivery channel | Proposed | — |
+| [HU-12](tasks/HU-12.md) | Asynchronous Gmail SMTP ticket notifications | Completed | [Implementation](implementation/HU-12.md) |
 | HU-13 | Expose job status and demonstrate retries and failure handling | Proposed | — |
 
-Basis: the two ticket-specific job ideas on PDF page 5 and queue/frontend/rubric requirements on pages 1-2. RabbitMQ is the team's chosen broker. HU-11 implements a separate assignment worker, least-load selection, native queue priorities, and bounded rejection; it is tested and user-approved. Notification delivery, generalized retries, and job-state storage/API remain future scope.
+Basis: the two ticket-specific job ideas on PDF page 5 and queue/frontend/rubric requirements on pages 1-2. RabbitMQ is the team's chosen broker. HU-11 implements a separate assignment worker, least-load selection, native queue priorities, and bounded rejection; it is tested and user-approved. HU-12 notification delivery is tested and user-approved. Generalized retries and job-state storage/API remain future scope.
 
 ### EP-04: Angular SPA
 
@@ -83,7 +83,7 @@ PDF pages 2-4 require security middleware, collaboration evidence, a maximum 10-
 ## Gaps and next work
 
 1. Clarify registration compliance: the PDF requires registration/demo, but approved HU-04 provides administrator-created accounts and excludes public registration. Keep EP-01 approved; record any additional agreed scope separately.
-2. Specify the two queue jobs and Angular integration. EP-02 (HU-07 through HU-10) is tested and approved; HU-11 is also tested and approved; subsequent proposed IDs are not approved tasks.
+2. Specify generalized job visibility/retries and Angular integration. EP-02 (HU-07 through HU-10) is tested and approved; HU-11 and HU-12 are also tested and approved; subsequent proposed IDs are not approved tasks.
 3. Plan final manuals, security review, collaboration evidence, and demonstration against the [PDF](requirements/project-requirements.pdf).
 
 No conflict was found between the selected stack and the PDF's suggested alternatives. Existing CORS, password hashing, JWT checks, and request validation cover part of basic security; Helmet or an equivalent security-header policy is not present and requires review.

@@ -14,7 +14,8 @@
     "prisma:generate": "prisma generate",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "node scripts/seed-admin.js",
-    "test": "node --test"
+    "test": "node --test",
+    "worker:notification": "node src/workers/notification.worker.js"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
@@ -24,6 +25,7 @@
     "dotenv": "^18.0.9",
     "express": "^5.3.0",
     "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^10.2.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {

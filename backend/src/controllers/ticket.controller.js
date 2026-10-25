@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { queueTicketNotification } from '../jobs/notifications.js';
 import { publishAssignment } from '../jobs/assignment-queue.js';
 
 const prisma = new PrismaClient();
@@ -78,6 +79,13 @@ export async function updateTicket(req, res) {
         where: { id: ticket.id }, include: ticketRelations,
       }) };
     });
+    if (result.status === 200 && ['RESOLVED', 'CLOSED'].includes(req.body.status)) {
+      const queued = await queueTicketNotification(prisma, `TICKET_${req.body.status}`, result.body);
+      if (!queued) return res.status(503).json({
+        message: 'Ticket updated, but notification could not be confirmed. Do not repeat the operation; contact an administrator.',
+        ticketId: result.body.id,
+      });
+    }
     return res.status(result.status).json(result.body);
   } catch {
     return res.status(500).json({ message: 'Unable to update ticket.' });
@@ -116,6 +124,7 @@ export async function createTicket(req, res) {
     const ticket = await prisma.ticket.create({
       data: { title, description, priority, createdById: req.user.id },
     });
+    const notificationQueued = await queueTicketNotification(prisma, 'TICKET_CREATED', ticket);
     try {
       await publishAssignment(ticket);
     } catch {
@@ -125,6 +134,10 @@ export async function createTicket(req, res) {
         ticketId: ticket.id,
       });
     }
+    if (!notificationQueued) return res.status(503).json({
+      message: 'Ticket created, but notification could not be confirmed. Do not create it again; contact an administrator.',
+      ticketId: ticket.id,
+    });
     return res.status(201).json(ticket);
   } catch {
     return res.status(500).json({ message: 'Unable to create ticket.' });

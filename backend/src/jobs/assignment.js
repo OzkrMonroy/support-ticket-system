@@ -1,11 +1,13 @@
-export async function assignTicket(prisma, ticketId, onSkip = () => {}) {
+import { queueTicketNotification } from './notifications.js';
+
+export async function assignTicket(prisma, ticketId, onSkip = () => {}, onAssigned = () => {}) {
   const skip = (reason) => {
     onSkip(reason);
     return 'skipped';
   };
   const ticket = await prisma.ticket.findUnique({
     where: { id: ticketId },
-    select: { deletedAt: true, assignedToId: true, status: true },
+    select: { id: true, title: true, priority: true, createdById: true, deletedAt: true, assignedToId: true, status: true },
   });
   if (!ticket) return skip('not-found');
   if (ticket.deletedAt !== null) return skip('soft-deleted');
@@ -25,10 +27,12 @@ export async function assignTicket(prisma, ticketId, onSkip = () => {}) {
     where: { id: ticketId, deletedAt: null, assignedToId: null, status: 'OPEN' },
     data: { assignedToId: technician.id },
   });
-  return result.count ? 'assigned' : skip('eligibility-changed');
+  if (!result.count) return skip('eligibility-changed');
+  onAssigned({ ...ticket, assignedToId: technician.id });
+  return 'assigned';
 }
 
-export async function handleAssignment(channel, message, prisma, log = console) {
+export async function handleAssignment(channel, message, prisma, log = console, notify = queueTicketNotification) {
   if (!message) throw new Error('Assignment consumer cancelled.');
   let ticketId;
   try {
@@ -37,7 +41,10 @@ export async function handleAssignment(channel, message, prisma, log = console) 
       throw new Error('Invalid assignment message.');
     }
     let skipReason;
-    const outcome = await assignTicket(prisma, ticketId, (reason) => { skipReason = reason; });
+    let assignedTicket;
+    const outcome = await assignTicket(prisma, ticketId, (reason) => { skipReason = reason; },
+      (ticket) => { assignedTicket = ticket; });
+    if (outcome === 'assigned') await notify(prisma, 'TICKET_ASSIGNED', assignedTicket);
     log.info(`Ticket assignment ${ticketId}: ${outcome}${skipReason ? ` (${skipReason})` : ''}`);
     channel.ack(message);
   } catch {

@@ -78,6 +78,14 @@ test('HTTP publication failure preserves ticket and reports recoverable ID', asy
     assert.equal(stored.assignedToId, null);
     assert.equal(stored.status, 'OPEN');
     assert.equal(stored.createdById, user.id);
+    await prisma.user.update({ where: { id: user.id }, data: { role: 'ADMIN' } });
+    const updated = await fetch(`http://localhost:32109/api/tickets/${stored.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt.sign({ id: user.id, role: 'ADMIN' }, 'assignment-test', { expiresIn: '15m' })}` },
+      body: JSON.stringify({ status: 'CLOSED' }),
+    });
+    assert.equal(updated.status, 503);
+    assert.equal((await updated.json()).ticketId, stored.id);
+    assert.equal((await prisma.ticket.findUniqueOrThrow({ where: { id: stored.id } })).status, 'CLOSED');
   } finally {
     const exited = once(server, 'exit'); server.kill(); await exited;
     await prisma.ticket.deleteMany({ where: { createdById: user.id } });

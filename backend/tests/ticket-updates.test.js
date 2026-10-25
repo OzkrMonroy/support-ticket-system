@@ -6,13 +6,18 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
+import amqp from 'amqplib';
 
 test('ticket updates enforce workflow, visibility, and atomic validation', async (t) => {
   const prisma = new PrismaClient();
+  const connection = await amqp.connect(process.env.RABBITMQ_URL);
+  const channel = await connection.createChannel();
+  const notificationQueue = `hu12-${randomUUID()}`;
+  await channel.assertQueue(notificationQueue, { durable: true, arguments: { 'x-queue-type': 'classic' } });
   const secret = 'ticket-updates-test-secret-only';
   const ids = [];
   const server = spawn(process.execPath, ['src/server.js'], {
-    env: { ...process.env, PORT: '32107', JWT_SECRET: secret },
+    env: { ...process.env, PORT: '32107', JWT_SECRET: secret, NOTIFICATION_QUEUE: notificationQueue },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const token = (user, options = {}) => `Bearer ${jwt.sign(
@@ -55,6 +60,16 @@ test('ticket updates enforce workflow, visibility, and atomic validation', async
       const result = await request(id, body, token(user));
       assert.equal(result.status, expected, JSON.stringify({ role: user.role, body, result }));
       const after = await stored();
+      const message = await channel.get(notificationQueue, { noAck: true });
+      if (expected === 200 && ['RESOLVED', 'CLOSED'].includes(body.status)) {
+        assert.ok(message);
+        const job = JSON.parse(message.content);
+        assert.equal(job.event, `TICKET_${body.status}`);
+        assert.equal(job.ticketId, ticket.id);
+        assert.equal(job.to, users.client.email);
+        assert.equal(job.status, body.status);
+      } else assert.equal(message, false);
+      assert.equal(await channel.get(notificationQueue), false);
       if (expected !== 200) assert.deepEqual(after, before);
       else {
         for (const field of ['id', 'createdById', 'assignedToId', 'createdAt']) {
@@ -180,5 +195,7 @@ test('ticket updates enforce workflow, visibility, and atomic validation', async
     await prisma.ticket.deleteMany({ where: { createdById: { in: ids } } });
     await prisma.user.deleteMany({ where: { id: { in: ids } } });
     await prisma.$disconnect();
+    await channel.deleteQueue(notificationQueue);
+    await connection.close();
   }
 });

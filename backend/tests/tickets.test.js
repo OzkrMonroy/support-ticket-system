@@ -6,13 +6,21 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
+import amqp from 'amqplib';
+import { queueOptions as assignmentOptions } from '../src/jobs/assignment-queue.js';
 
 test('ticket creation persists valid input and enforces access and validation', async (t) => {
   const prisma = new PrismaClient();
+  const connection = await amqp.connect(process.env.RABBITMQ_URL);
+  const channel = await connection.createChannel();
+  const notificationQueue = `hu12-${randomUUID()}`;
+  const assignmentQueue = `hu12-assignment-${randomUUID()}`;
+  await channel.assertQueue(assignmentQueue, assignmentOptions);
+  await channel.assertQueue(notificationQueue, { durable: true, arguments: { 'x-queue-type': 'classic' } });
   const secret = 'tickets-test-secret-only';
   const ids = [];
   const server = spawn(process.execPath, ['src/server.js'], {
-    env: { ...process.env, PORT: '32105', JWT_SECRET: secret },
+    env: { ...process.env, PORT: '32105', JWT_SECRET: secret, NOTIFICATION_QUEUE: notificationQueue, ASSIGNMENT_QUEUE: assignmentQueue },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const token = (user, options = {}) => `Bearer ${jwt.sign(
@@ -50,6 +58,14 @@ test('ticket creation persists valid input and enforces access and validation', 
         for (const priority of ['LOW', 'MEDIUM', 'HIGH']) {
           const result = await request({ ...valid, priority }, token(users[role]));
           assert.equal(result.status, 201);
+          const notification = await channel.get(notificationQueue, { noAck: true });
+          assert.ok(notification);
+          const job = JSON.parse(notification.content);
+          assert.equal(job.event, 'TICKET_CREATED');
+          assert.equal(job.ticketId, result.body.id);
+          assert.equal(job.to, users[role].email);
+          assert.equal(job.description, undefined);
+          assert.equal(await channel.get(notificationQueue), false);
           const stored = await prisma.ticket.findUniqueOrThrow({ where: { id: result.body.id } });
           assert.deepEqual(result.body, JSON.parse(JSON.stringify(stored)));
           assert.deepEqual(Object.keys(result.body).sort(), [
@@ -84,6 +100,7 @@ test('ticket creation persists valid input and enforces access and validation', 
       assert.equal(await prisma.ticket.count({ where }), before + 1);
     });
     await t.test('invalid input and server-controlled fields never create tickets', async () => {
+      while (await channel.get(notificationQueue, { noAck: true })) {}
       const before = await prisma.ticket.count({ where });
       assert.deepEqual(await request(null, token(users.ADMIN)), {
         status: 400, body: { message: 'Invalid JSON body.' },
@@ -108,6 +125,7 @@ test('ticket creation persists valid input and enforces access and validation', 
         message: 'Validation failed.', errors: { title: 'Title is required.' },
       });
       assert.equal(await prisma.ticket.count({ where }), before);
+      assert.equal(await channel.get(notificationQueue), false);
     });
   } finally {
     if (server.exitCode === null && server.signalCode === null) {
@@ -119,5 +137,8 @@ test('ticket creation persists valid input and enforces access and validation', 
     await prisma.ticket.deleteMany({ where: { createdById: { in: ids } } });
     await prisma.user.deleteMany({ where: { id: { in: ids } } });
     await prisma.$disconnect();
+    await channel.deleteQueue(notificationQueue);
+    await channel.deleteQueue(assignmentQueue);
+    await connection.close();
   }
 });
