@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
+    "worker:assignment": "node src/workers/assignment.worker.js",
+    "assignment:publish": "node scripts/publish-assignment.js",
     "prisma:generate": "prisma generate",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "node scripts/seed-admin.js",
@@ -16,6 +18,7 @@
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
+    "amqplib": "^2.2.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^18.0.9",

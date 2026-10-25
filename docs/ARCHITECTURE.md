@@ -2,9 +2,9 @@
 
 ## Current components
 
-The application is a JavaScript ESM Express REST backend connected through Prisma 6.19.3 to PostgreSQL 17. Docker Compose runs only PostgreSQL with a persistent named volume and health check. Express runs separately. CORS is configured for the intended frontend origin; the health endpoint checks HTTP availability only.
+The application is a JavaScript ESM Express REST backend connected through Prisma 6.19.3 to PostgreSQL 17. Docker Compose runs PostgreSQL and RabbitMQ 4.2 with persistent named volumes and health checks. Express runs separately. CORS is configured for the intended frontend origin; the health endpoint checks HTTP availability only.
 
-Angular and RabbitMQ are established technology choices but are not implemented. Ticket creation is implemented for CLIENT and ADMIN accounts (approved HU-07). There is no frontend, broker service, queue publisher, or worker. Dashed arrows below show planned integration, not existing runtime behavior.
+Angular is planned; RabbitMQ assignment is implemented under HU-11. Ticket creation is implemented for CLIENT and ADMIN accounts (approved HU-07). There is no frontend. The API publishes assignment messages and a separate Node worker consumes them. Dashed arrows below show planned integration, not existing runtime behavior.
 
 ```mermaid
 flowchart LR
@@ -13,11 +13,12 @@ flowchart LR
     Prisma --> DB[(PostgreSQL 17)]
     Seed[Administrator seed] --> Prisma
     Angular[Angular SPA - planned] -.->|REST API| API
-    API -.->|Jobs - planned| MQ[RabbitMQ - planned]
-    MQ -.-> Worker[Worker - planned]
+    API -->|Confirmed persistent ticket ID / priority| MQ[RabbitMQ]
+    MQ -->|Manual ack / prefetch 1| Worker[Assignment worker]
+    Worker --> Prisma
 ```
 
-No worker persistence, notification provider, or queue topology is decided by this diagram.
+One durable classic priority queue, `ticket-assignment`, is used. No job tables or notification provider exist.
 
 ## Backend layout
 
@@ -27,6 +28,9 @@ No worker persistence, notification provider, or queue topology is decided by th
 | `src/routes/` | Authentication, user, and ticket creation/read/update/deletion endpoints; middleware order |
 | `src/controllers/` | Authentication/session business logic and direct Prisma user/ticket operations |
 | `src/middleware/` | Bearer JWT authentication, current database account/role checks, administrator authorization, Zod validation adapter |
+| `src/jobs/` | RabbitMQ queue declaration/publishing and ticket assignment policy/delivery handling |
+| `src/workers/assignment.worker.js` | Separate assignment consumer with prefetch 1 and manual acknowledgements |
+| `scripts/publish-assignment.js` | Manual publication/recovery for an existing ticket ID |
 | `src/schemas/` | Zod body/parameter schemas; no environment validation |
 | `prisma/` | Database schema, enums, initial and ticket migrations |
 | `scripts/seed-admin.js` | Environment-configured, idempotent administrator creation with bcrypt hashing |
@@ -111,8 +115,16 @@ The [backend README](../backend/README.md) was reconciled with current authoriza
 
 Academic registration compliance and the proposed ticket/queue/frontend work are tracked in the [roadmap](ROADMAP.md). This document does not prescribe their future schema or detailed architecture.
 
-Ticket creation uses strict Zod body validation (trimmed title: 1–200 characters; description: 1–5000; required priority enum). Authentication and current-role authorization precede validation. Only persisted ticket scalar fields are returned; server-owned fields and unknown body keys are rejected. HU-08 adds list/detail reads using a shared Prisma visibility filter applied in the database. Lists sort by createdAt descending, then id descending. Both reads include creator/assignee relations selecting only id, name, email, and role; absent assignees are null. Detail UUID validation follows authentication. Missing and inaccessible tickets share a 404 response. Jobs are not implemented. HU-08 is user-approved.
+Ticket creation uses strict Zod body validation (trimmed title: 1–200 characters; description: 1–5000; required priority enum). Authentication and current-role authorization precede validation. Only persisted ticket scalar fields are returned; server-owned fields and unknown body keys are rejected. HU-08 adds list/detail reads using a shared Prisma visibility filter applied in the database. Lists sort by createdAt descending, then id descending. Both reads include creator/assignee relations selecting only id, name, email, and role; absent assignees are null. Detail UUID validation follows authentication. Missing and inaccessible tickets share a 404 response. Assignment messages are published under HU-11. HU-08 is user-approved.
 
 HU-09 adds strict partial update validation using the creation field constraints and the existing status enum. Controller logic checks the persisted starting state before writing: CLIENT edits own OPEN content or closes own RESOLVED tickets; TECHNICIAN advances assigned tickets from OPEN to IN_PROGRESS and IN_PROGRESS to RESOLVED; ADMIN edits non-CLOSED content, performs normal forward transitions, or closes directly. CLOSED is terminal. Forbidden operations return 403 without partial writes. A Prisma transaction reads the visible ticket, conditionally updates against the starting status and visibility, and returns the same safe relations as detail reads. No models, migrations, assignment API, or new layers were added. HU-09 is user-approved.
 
 HU-10 adds nullable Ticket.deletedAt through an additive migration. Normal list, detail, and update queries require deletedAt to be null alongside role visibility. DELETE preserves the row and status, sets deletedAt, and lets Prisma manage updatedAt. Missing, invisible, and already-deleted tickets return 404; visible but forbidden deletions return 403. Conditional writes recheck visibility, deletion state, and the CLIENT OPEN requirement. No restore, trash view, or new architectural layer is added. HU-10 is tested and user-approved; EP-02 backend ticket CRUD is complete.
+
+## HU-11 assignment flow and failure boundary
+
+`src/jobs/assignment-queue.js` publishes confirmed persistent messages containing only ticketId; priority properties are LOW=1, MEDIUM=2, HIGH=3. The separate `src/workers/assignment.worker.js` consumes with prefetch 1 and manual acknowledgements. `src/jobs/assignment.js` queries active technicians, counts non-deleted OPEN/IN_PROGRESS work, breaks load ties by ascending ID and conditionally updates an OPEN, non-deleted, unassigned ticket. No schema change or status transition occurs. Duplicate/stale deliveries are no-ops. Concurrent workers cannot overwrite an assignment, but selection for different tickets uses workload snapshots rather than global serialization.
+
+Expected no-ops and no-technician outcomes are acknowledged. Unexpected failures are logged and nacked without requeue (discarded, no automatic retries). Broker disconnection stops the worker; restart manually. API publish failures after persistence return 503 with ticketId rather than falsely claiming success; the original ticket remains available. `scripts/publish-assignment.js` provides manual recovery using current database priority. Publisher confirmation uncertainty can produce harmless duplicates. A crash between commit and publish is not atomic and requires manual recovery; no outbox, distributed transaction, generic job storage or HU-13 retry framework is introduced. Priority orders pending messages only; no strict global ordering under concurrency is promised. See backend README for startup and recovery.
+
+The worker consumes only RabbitMQ deliveries; it does not scan for unassigned tickets. Skip logs include the ticket ID and one fixed reason: `not-found`, `soft-deleted`, `already-assigned`, `not-open`, or `eligibility-changed` when the conditional write no longer matches. No ticket content or user details are logged. HU-11 is tested and user-approved.

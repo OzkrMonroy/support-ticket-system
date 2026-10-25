@@ -1,6 +1,6 @@
 # Support Ticket System
 
-University project for managing technical support tickets. The backend uses Node.js, Express, JavaScript ESM, PostgreSQL 17, and Prisma 6.19.3. It provides a health endpoint, login with short-lived access JWTs, refresh-token rotation, logout, administrator account management, own-profile retrieval, and ticket creation/listing/details and role-based updates. Ticket soft deletion is implemented; Angular and RabbitMQ are pending later tasks.
+University project for managing technical support tickets. The backend uses Node.js, Express, JavaScript ESM, PostgreSQL 17, and Prisma 6.19.3. It provides a health endpoint, login with short-lived access JWTs, refresh-token rotation, logout, administrator account management, own-profile retrieval, and ticket creation/listing/details and role-based updates. Ticket soft deletion is implemented; RabbitMQ automatic assignment is implemented under HU-11; Angular remains pending.
 
 ## Prerequisites
 
@@ -41,7 +41,7 @@ node --input-type=module -e "import { randomBytes } from 'node:crypto'; console.
 
 The PostgreSQL credentials connect tools and Prisma to the database. The `ADMIN_*` values create an application user; they do not grant database access.
 
-## Start PostgreSQL
+## Start PostgreSQL and RabbitMQ
 
 ```sh
 docker compose --env-file backend/.env -f infrastructure/compose.yaml up -d --wait
@@ -148,7 +148,7 @@ Send `POST http://localhost:3000/api/tickets` with `Content-Type: application/js
 
 Title and description are trimmed, required, and limited to 200 and 5000 characters respectively. Priority must be `LOW`, `MEDIUM`, or `HIGH`. Additional fields are rejected with 400 using the existing `message`/`errors` envelope; unknown-field errors have an empty `errors` object because the shared validator reports only field paths. Do not send IDs, status, assignment, or timestamps.
 
-Success returns 201 with persisted scalar fields: `id`, `title`, `description`, `priority`, `status`, `createdById`, `assignedToId`, `createdAt`, and `updatedAt`, plus `deletedAt` (initially `null`). The creator comes from authentication, status defaults to `OPEN`, and assignment is `null`. User records are not included. Missing/invalid/expired authentication and inactive accounts receive 401; TECHNICIAN receives 403 before field validation. Unexpected database errors return a generic 500 response. Assignment and notifications are not implemented.
+Success returns 201 with persisted scalar fields: `id`, `title`, `description`, `priority`, `status`, `createdById`, `assignedToId`, `createdAt`, and `updatedAt`, plus `deletedAt` (initially `null`). The creator comes from authentication, status defaults to `OPEN`, and assignment is `null`. User records are not included. Missing/invalid/expired authentication and inactive accounts receive 401; TECHNICIAN receives 403 before field validation. Unexpected database errors return a generic 500 response. Assignment is queued asynchronously after creation; notifications are not implemented.
 
 ## Update support tickets
 
@@ -219,7 +219,7 @@ Create a PostgreSQL connection with host `localhost`, port from `POSTGRES_PORT`,
 
 ## Checks
 
-Integration tests use Node's built-in test runner to verify health, the administrator seed, login, refresh rotation, logout, administrator-only user creation/listing/deactivation, current-account authorization, own-profile retrieval, ticket creation, role-based ticket listing/details, ticket update permissions/workflow, soft deletion, and field validation. Start PostgreSQL, apply migrations, and configure `ADMIN_*` first. Tests use the configured database and leave the seeded administrator in place. The password in `.env` must match the seeded administrator. HTTP tests temporarily use ports `32101`, `32102`, `32103`, `32104`, `32105`, `32106`, `32107`, and `32108` and supply their own signing secrets. Login and refresh fixtures use unique emails; their users and sessions are removed after the test. Ticket tests remove only their own tickets and user fixtures. The administrator login test removes only the session it creates.
+Integration tests use Node's built-in test runner to verify health, the administrator seed, login, refresh rotation, logout, administrator-only user creation/listing/deactivation, current-account authorization, own-profile retrieval, ticket creation, role-based ticket listing/details, ticket update permissions/workflow, soft deletion, and field validation. Start PostgreSQL and RabbitMQ, configure `RABBITMQ_URL`, leave the assignment worker stopped during tests, apply migrations, and configure `ADMIN_*` first. Tests use the configured database and leave the seeded administrator in place. The password in `.env` must match the seeded administrator. HTTP tests temporarily use ports `32101`, `32102`, `32103`, `32104`, `32105`, `32106`, `32107`, and `32108` and supply their own signing secrets. Login and refresh fixtures use unique emails; their users and sessions are removed after the test. Ticket tests remove only their own tickets and user fixtures. The administrator login test removes only the session it creates.
 
 From `backend/`:
 
@@ -240,3 +240,38 @@ Use TablePlus to confirm one administrator row for the configured email, role `A
 - **Seed configuration missing:** run the seed from `backend/` and check all three `ADMIN_*` variables in its `.env`.
 
 Implementation details are recorded in [TASK-01 notes](../docs/implementation/TASK-01.md), [HU-01 notes](../docs/implementation/HU-01.md), [HU-02 notes](../docs/implementation/HU-02.md), [HU-03 notes](../docs/implementation/HU-03.md), [HU-04 notes](../docs/implementation/HU-04.md), [HU-05 notes](../docs/implementation/HU-05.md), [HU-06 notes](../docs/implementation/HU-06.md), and [TASK-02 notes](../docs/implementation/TASK-02.md). See also the [project overview](../docs/PROJECT.md), [roadmap](../docs/ROADMAP.md), and [architecture](../docs/ARCHITECTURE.md).
+
+## Automatic assignment (HU-11)
+
+Add the RabbitMQ settings from `.env.example` to your local `.env`:
+
+| Variable | Purpose |
+| --- | --- |
+| `RABBITMQ_URL` | Required API/worker AMQP URL; example `amqp://support_user:local_broker_password@localhost:5672`. URL-encode credentials. |
+| `RABBITMQ_USER`, `RABBITMQ_PASSWORD` | Compose broker account; defaults match the local example URL. Replace together. |
+| `RABBITMQ_PORT` | Local AMQP port; default `5672`. Update the URL if changed. |
+| `RABBITMQ_MANAGEMENT_PORT` | Local management UI port; default `15672`. |
+
+The Compose startup command above starts both services and preserves their named volumes. The management UI is at `http://localhost:15672`; use the broker account. Ports are bound to loopback. Changing credentials does not change an existing broker volume's account.
+
+From `backend/`, run the API (`npm start`) and, in a second terminal:
+
+```sh
+npm run worker:assignment
+```
+
+Run one worker for the local demonstration. Each creation publishes `{ticketId}` to durable classic queue `ticket-assignment`, using persistent messages, publisher confirms and priorities LOW=1, MEDIUM=2, HIGH=3. POST waits for the broker confirmation, not assignment, and preserves its 201 scalar response. The worker reads current database data, selects the active TECHNICIAN with the fewest non-deleted OPEN/IN_PROGRESS assignments, and breaks ties by ID ascending. Assignment preserves OPEN. Missing, deleted, non-OPEN or already-assigned tickets are skipped; no technicians is acknowledged without retry. Existing GET routes expose the resulting safe assignee fields and technician visibility.
+
+Manual acknowledgements follow successful assignment/no-op. Unexpected processing errors (including malformed messages) are logged and rejected with `requeue=false`: one attempt per delivery, no automatic application retry or dead-letter queue. Rejected messages are discarded. After fixing the cause, an administrator can republish an existing ticket:
+
+```sh
+npm run assignment:publish -- <ticket-uuid>
+```
+
+If creation succeeds in PostgreSQL but publishing fails or confirmation times out, POST returns 503 with `ticketId` and an explicit message that the ticket exists. Do not repeat POST; recover with the command above. Logs contain the ticket ID, never broker credentials. An uncertain confirmation can produce duplicates; conditional assignment makes them harmless. A process crash between database commit and publish remains a recovery gap without an outbox; inspect unassigned tickets and republish manually. No new API or schema is added.
+
+Priority applies only to messages still queued, not work already delivered. `prefetch(1)` limits outstanding work; multiple workers have no strict global ordering and can observe the same workload snapshot for different tickets. Conditional writes prevent overwriting the same ticket's assignment. Connection loss can redeliver unacknowledged work; the worker exits on disconnect and must be restarted. No reconnect loop is implemented. HU-13 will extend failure handling/status visibility.
+
+Tests include isolated real-broker priority/publisher checks, real PostgreSQL assignment with rolled-back fixtures, API publication failure on port `32109`, and focused policy/acknowledgement tests. Unit tests alone: `node --test tests/assignment.test.js`. Keep the worker stopped for the full suite so existing creation assertions remain deterministic. Full tests can leave assignment messages for deleted fixtures; later consumption safely skips them.
+
+Manual end-to-end check: start the worker with an active technician present, create a ticket as CLIENT, then GET its detail as the creator and assigned technician. Verify OPEN and the assignee. Stop the worker, enqueue LOW/MEDIUM/HIGH tickets, then restart it to observe queued priority order. Do not claim ordering across concurrent consumers.

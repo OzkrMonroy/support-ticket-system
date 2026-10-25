@@ -12,18 +12,18 @@ A university final project for managing technical support tickets for the fictio
 
 The backend also implements a health endpoint, active-account checks, password hashing, request validation, and persistent refresh sessions. EP-01 (HU-01 through HU-06), TASK-01, and TASK-02 are approved. Their specifications and implementation records are linked in the [roadmap](ROADMAP.md).
 
-Ticket creation is implemented for active CLIENT and ADMIN accounts under the approved HU-07 scope. Ticket listing and details are implemented under the approved HU-08 scope, with ADMIN/all, CLIENT/created, and TECHNICIAN/assigned visibility. Ticket updates and status transitions are implemented under the approved HU-09 scope. Ticket soft deletion is implemented under the tested and approved HU-10 scope. EP-02 (backend ticket CRUD) is completed and user-approved. Priority-based automatic assignment, follow-up notifications, queue processing, and the Angular interface are not implemented. The academic baseline requires at least two asynchronous jobs, retries/failure handling, validated SPA forms, navigation, action feedback, and visible job status. The ticket board is an optional idea in the requirements, not an approved feature.
+Ticket creation is implemented for active CLIENT and ADMIN accounts under the approved HU-07 scope. Ticket listing and details are implemented under the approved HU-08 scope, with ADMIN/all, CLIENT/created, and TECHNICIAN/assigned visibility. Ticket updates and status transitions are implemented under the approved HU-09 scope. Ticket soft deletion is implemented under the tested and approved HU-10 scope. EP-02 (backend ticket CRUD) is completed and user-approved. RabbitMQ priority-based automatic assignment is implemented under the tested and user-approved HU-11. Follow-up notifications, general job visibility/retries, and the Angular interface are not implemented. The academic baseline requires at least two asynchronous jobs, retries/failure handling, validated SPA forms, navigation, action feedback, and visible job status. The ticket board is an optional idea in the requirements, not an approved feature.
 
 ## Technology and repository
 
 - Existing: Node.js/Express, JavaScript ESM, PostgreSQL 17, Prisma 6.19.3, JWT access tokens, opaque refresh tokens, bcryptjs, Zod request validation, dotenv, CORS, and Node's built-in test runner.
-- Established choices awaiting implementation: Angular (standalone components, Reactive Forms) and RabbitMQ. No frontend or worker exists yet.
+- Established choices awaiting implementation: Angular (standalone components, Reactive Forms). RabbitMQ and a separate assignment worker now exist; no frontend exists yet.
 - Git monorepo; prioritize simple, readable solutions within the academic timeline.
 
 | Path | Contents |
 | --- | --- |
 | `backend/` | Express API, Prisma schema/migration, administrator seed, integration tests, setup README |
-| `infrastructure/` | Docker Compose for PostgreSQL only |
+| `infrastructure/` | Docker Compose for PostgreSQL and RabbitMQ |
 | `docs/tasks/` | Existing task and story specifications |
 | `docs/implementation/` | Historical implementation and verification records |
 | `docs/requirements/` | University requirements PDF |

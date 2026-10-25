@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { publishAssignment } from '../jobs/assignment-queue.js';
 
 const prisma = new PrismaClient();
 
@@ -115,6 +116,15 @@ export async function createTicket(req, res) {
     const ticket = await prisma.ticket.create({
       data: { title, description, priority, createdById: req.user.id },
     });
+    try {
+      await publishAssignment(ticket);
+    } catch {
+      console.error(`Ticket ${ticket.id} created but assignment publication failed; manual republish required.`);
+      return res.status(503).json({
+        message: 'Ticket created, but assignment could not be confirmed. Do not create it again; contact an administrator.',
+        ticketId: ticket.id,
+      });
+    }
     return res.status(201).json(ticket);
   } catch {
     return res.status(500).json({ message: 'Unable to create ticket.' });
