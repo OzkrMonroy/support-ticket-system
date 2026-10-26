@@ -52,11 +52,11 @@ test('real Prisma assignment is idempotent and preserves status; fixtures rolled
       assert.equal(await assignTicket(tx, deleted.id), 'skipped');
       assert.equal(await assignTicket(tx, randomUUID()), 'skipped');
       throw rollback;
-    }), (error) => error === rollback);
+    }, { isolationLevel: 'RepeatableRead' }), (error) => error === rollback);
   } finally { await prisma.$disconnect(); }
 });
 
-test('HTTP publication failure preserves ticket and reports recoverable ID', async () => {
+test('HTTP broker outage commits ticket and durable unpublished jobs', async () => {
   const { spawn } = await import('node:child_process');
   const { once } = await import('node:events');
   const { default: jwt } = await import('jsonwebtoken');
@@ -72,9 +72,9 @@ test('HTTP publication failure preserves ticket and reports recoverable ID', asy
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt.sign({ id: user.id, role: user.role }, 'assignment-test', { expiresIn: '15m' })}` },
       body: JSON.stringify({ title: 'Broker unavailable', description: 'Keep ticket', priority: 'HIGH' }),
     });
-    assert.equal(response.status, 503);
+    assert.equal(response.status, 201);
     const body = await response.json();
-    const stored = await prisma.ticket.findUniqueOrThrow({ where: { id: body.ticketId } });
+    const stored = await prisma.ticket.findUniqueOrThrow({ where: { id: body.id } });
     assert.equal(stored.assignedToId, null);
     assert.equal(stored.status, 'OPEN');
     assert.equal(stored.createdById, user.id);
@@ -83,8 +83,11 @@ test('HTTP publication failure preserves ticket and reports recoverable ID', asy
       method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt.sign({ id: user.id, role: 'ADMIN' }, 'assignment-test', { expiresIn: '15m' })}` },
       body: JSON.stringify({ status: 'CLOSED' }),
     });
-    assert.equal(updated.status, 503);
-    assert.equal((await updated.json()).ticketId, stored.id);
+    assert.equal(updated.status, 200);
+    assert.equal((await updated.json()).id, stored.id);
+    const pending = await prisma.asyncJob.findMany({ where: { ticketId: stored.id } });
+    assert.equal(pending.length, 3);
+    assert.ok(pending.every((job) => job.status === 'PENDING' && job.publishedAt === null));
     assert.equal((await prisma.ticket.findUniqueOrThrow({ where: { id: stored.id } })).status, 'CLOSED');
   } finally {
     const exited = once(server, 'exit'); server.kill(); await exited;

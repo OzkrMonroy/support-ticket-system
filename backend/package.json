@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
+    "jobs:dispatch": "node scripts/dispatch-jobs.js",
     "worker:assignment": "node src/workers/assignment.worker.js",
     "assignment:publish": "node scripts/publish-assignment.js",
     "prisma:generate": "prisma generate",

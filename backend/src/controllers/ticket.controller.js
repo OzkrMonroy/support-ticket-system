@@ -1,6 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { queueTicketNotification } from '../jobs/notifications.js';
-import { publishAssignment } from '../jobs/assignment-queue.js';
+import { createJob, dispatchJobs, publicJobSelect } from '../jobs/async-jobs.js';
 
 const prisma = new PrismaClient();
 
@@ -75,17 +74,13 @@ export async function updateTicket(req, res) {
       if (updated.count === 0) {
         return { status: 403, body: { message: 'Ticket update is not permitted.' } };
       }
-      return { status: 200, body: await tx.ticket.findUnique({
-        where: { id: ticket.id }, include: ticketRelations,
-      }) };
+      const body = await tx.ticket.findUnique({ where: { id: ticket.id }, include: ticketRelations });
+      if (['RESOLVED', 'CLOSED'].includes(req.body.status)) {
+        await createJob(tx, 'EMAIL_NOTIFICATION', body, `TICKET_${req.body.status}`);
+      }
+      return { status: 200, body };
     });
-    if (result.status === 200 && ['RESOLVED', 'CLOSED'].includes(req.body.status)) {
-      const queued = await queueTicketNotification(prisma, `TICKET_${req.body.status}`, result.body);
-      if (!queued) return res.status(503).json({
-        message: 'Ticket updated, but notification could not be confirmed. Do not repeat the operation; contact an administrator.',
-        ticketId: result.body.id,
-      });
-    }
+    if (result.status === 200) await dispatchJobs(prisma, undefined, result.body.id);
     return res.status(result.status).json(result.body);
   } catch {
     return res.status(500).json({ message: 'Unable to update ticket.' });
@@ -121,25 +116,26 @@ export async function getTicket(req, res) {
 export async function createTicket(req, res) {
   const { title, description, priority } = req.body;
   try {
-    const ticket = await prisma.ticket.create({
-      data: { title, description, priority, createdById: req.user.id },
+    const ticket = await prisma.$transaction(async (tx) => {
+      const created = await tx.ticket.create({ data: { title, description, priority, createdById: req.user.id } });
+      await createJob(tx, 'TICKET_ASSIGNMENT', created);
+      await createJob(tx, 'EMAIL_NOTIFICATION', created, 'TICKET_CREATED');
+      return created;
     });
-    const notificationQueued = await queueTicketNotification(prisma, 'TICKET_CREATED', ticket);
-    try {
-      await publishAssignment(ticket);
-    } catch {
-      console.error(`Ticket ${ticket.id} created but assignment publication failed; manual republish required.`);
-      return res.status(503).json({
-        message: 'Ticket created, but assignment could not be confirmed. Do not create it again; contact an administrator.',
-        ticketId: ticket.id,
-      });
-    }
-    if (!notificationQueued) return res.status(503).json({
-      message: 'Ticket created, but notification could not be confirmed. Do not create it again; contact an administrator.',
-      ticketId: ticket.id,
-    });
+    await dispatchJobs(prisma, undefined, ticket.id);
     return res.status(201).json(ticket);
   } catch {
     return res.status(500).json({ message: 'Unable to create ticket.' });
   }
+}
+
+export async function getTicketJobs(req, res) {
+  try {
+    const ticket = await prisma.ticket.findFirst({ where: { id: req.params.id, ...visibilityFilter(req.user) } });
+    if (!ticket) return res.status(404).json({ message: 'Ticket not found.' });
+    const jobs = await prisma.asyncJob.findMany({ where: { ticketId: ticket.id,
+      ticket: visibilityFilter(req.user) }, select: publicJobSelect,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+    return res.json(jobs);
+  } catch { return res.status(500).json({ message: 'Unable to retrieve jobs.' }); }
 }

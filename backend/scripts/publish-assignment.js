@@ -1,12 +1,13 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
-import { publishAssignment } from '../src/jobs/assignment-queue.js';
+import { createJob, dispatchJobs } from '../src/jobs/async-jobs.js';
 
 const prisma = new PrismaClient();
 try {
   const ticket = await prisma.ticket.findUniqueOrThrow({ where: { id: process.argv[2] } });
-  await publishAssignment(ticket);
-  console.log(`Assignment published: ${ticket.id}`);
+  await createJob(prisma, 'TICKET_ASSIGNMENT', ticket);
+  await dispatchJobs(prisma, undefined, ticket.id);
+  console.log(`Assignment job persisted: ${ticket.id}`);
 } catch {
   console.error('Unable to publish assignment. Supply an existing ticket UUID and check the broker.');
   process.exitCode = 1;

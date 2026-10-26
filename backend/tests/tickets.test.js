@@ -60,7 +60,9 @@ test('ticket creation persists valid input and enforces access and validation', 
           assert.equal(result.status, 201);
           const notification = await channel.get(notificationQueue, { noAck: true });
           assert.ok(notification);
-          const job = JSON.parse(notification.content);
+          const envelope = JSON.parse(notification.content);
+          const record = await prisma.asyncJob.findUniqueOrThrow({ where: { id: envelope.jobId } });
+          const job = record.payload;
           assert.equal(job.event, 'TICKET_CREATED');
           assert.equal(job.ticketId, result.body.id);
           assert.equal(job.to, users[role].email);

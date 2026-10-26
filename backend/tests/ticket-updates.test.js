@@ -52,9 +52,12 @@ test('ticket updates enforce workflow, visibility, and atomic validation', async
     } });
     const where = { id: ticket.id };
     const stored = () => prisma.ticket.findUniqueOrThrow({ where });
-    const reset = (status) => prisma.ticket.update({ where, data: {
-      status, title: ticket.title, description: ticket.description, priority: ticket.priority,
-    } });
+    const reset = async (status) => {
+      await prisma.asyncJob.deleteMany({ where: { ticketId: ticket.id } });
+      return prisma.ticket.update({ where, data: {
+        status, title: ticket.title, description: ticket.description, priority: ticket.priority,
+      } });
+    };
     const check = async (user, body, expected, id = ticket.id) => {
       const before = await stored();
       const result = await request(id, body, token(user));
@@ -63,7 +66,8 @@ test('ticket updates enforce workflow, visibility, and atomic validation', async
       const message = await channel.get(notificationQueue, { noAck: true });
       if (expected === 200 && ['RESOLVED', 'CLOSED'].includes(body.status)) {
         assert.ok(message);
-        const job = JSON.parse(message.content);
+        const envelope = JSON.parse(message.content);
+        const job = (await prisma.asyncJob.findUniqueOrThrow({ where: { id: envelope.jobId } })).payload;
         assert.equal(job.event, `TICKET_${body.status}`);
         assert.equal(job.ticketId, ticket.id);
         assert.equal(job.to, users.client.email);

@@ -1,7 +1,10 @@
 import 'dotenv/config';
+import { PrismaClient } from '@prisma/client';
 import { createMailTransport } from '../jobs/smtp.js';
 import { openNotificationChannel, notificationQueue } from '../jobs/notification-queue.js';
-import { handleNotification } from '../jobs/notifications.js';
+import { handleJob } from '../jobs/async-jobs.js';
+
+const prisma = new PrismaClient();
 
 try {
   const transport = createMailTransport();
@@ -9,11 +12,12 @@ try {
   connection.on('close', () => {
     console.error('RabbitMQ disconnected; restart the notification worker.');
     transport.close();
+    void prisma.$disconnect();
     process.exitCode = 1;
   });
   await channel.prefetch(1);
   await channel.consume(notificationQueue, (message) => {
-    handleNotification(channel, message, transport, process.env.EMAIL_FROM).catch(() => {
+    handleJob(channel, message, prisma, 'EMAIL_NOTIFICATION', transport, process.env.EMAIL_FROM).catch(() => {
       console.error('Notification consumer unavailable; closing connection.');
       void connection.close().catch(() => {});
     });

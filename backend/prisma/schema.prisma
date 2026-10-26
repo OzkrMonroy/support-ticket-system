@@ -51,6 +51,7 @@ enum TicketStatus {
 }
 
 model Ticket {
+  jobs         AsyncJob[]
   deletedAt    DateTime?
   id           String         @id @default(uuid()) @db.Uuid
   title        String
@@ -63,4 +64,44 @@ model Ticket {
   assignedTo   User?          @relation("TicketAssignee", fields: [assignedToId], references: [id])
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
+}
+
+enum JobType {
+  TICKET_ASSIGNMENT
+  EMAIL_NOTIFICATION
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum JobResult {
+  SUCCESS
+  SKIPPED
+}
+
+model AsyncJob {
+  id          String     @id @default(uuid()) @db.Uuid
+  ticketId    String     @db.Uuid
+  ticket      Ticket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  type        JobType
+  event       String?
+  eventKey    String     @unique
+  payload     Json
+  status      JobStatus  @default(PENDING)
+  result      JobResult?
+  attempts    Int        @default(0)
+  maxAttempts Int        @default(3)
+  lastError   String?
+  availableAt DateTime   @default(now())
+  publishedAt DateTime?
+  claimedAt   DateTime?
+  claimToken  String?    @db.Uuid
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([status, publishedAt])
 }

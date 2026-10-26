@@ -18,10 +18,13 @@ flowchart LR
     Worker --> Prisma
     Worker -->|Assignment notification| MQ
     MQ -->|Notification queue / manual ack| MailWorker[Notification worker]
+    MailWorker --> Prisma
+    Dispatcher[One-shot recovery / dispatcher] --> Prisma
+    Dispatcher -->|Confirmed pending jobs / retry queues| MQ
     MailWorker -->|Nodemailer / Gmail TLS| SMTP[Gmail SMTP]
 ```
 
-Two durable classic queues are used: priority queue `ticket-assignment` and independent `ticket-notification`. Nodemailer sends via Gmail SMTP in the notification worker. No job tables are added.
+Two durable classic work queues are used: priority queue `ticket-assignment` and independent `ticket-notification`, with 5/15-second TTL retry queues declared as needed. PostgreSQL AsyncJob stores job state and durable pending dispatch. Nodemailer sends via Gmail SMTP in the notification worker.
 
 ## Backend layout
 
@@ -33,7 +36,8 @@ Two durable classic queues are used: priority queue `ticket-assignment` and inde
 | `src/middleware/` | Bearer JWT authentication, current database account/role checks, administrator authorization, Zod validation adapter |
 | `src/jobs/` | RabbitMQ queue declaration/publishing, assignment policy, notification templates/delivery handling and SMTP configuration |
 | `src/workers/assignment.worker.js`, `src/workers/notification.worker.js` | Separate assignment and notification consumers with prefetch 1 and manual acknowledgements |
-| `scripts/publish-assignment.js` | Manual publication/recovery for an existing ticket ID |
+| `scripts/publish-assignment.js` | Persist/reuse and dispatch the assignment job for an existing ticket ID |
+| `scripts/dispatch-jobs.js` | Recover stale claims and dispatch unpublished jobs |
 | `src/schemas/` | Zod body/parameter schemas; no environment validation |
 | `prisma/` | Database schema, enums, initial and ticket migrations |
 | `scripts/seed-admin.js` | Environment-configured, idempotent administrator creation with bcrypt hashing |
@@ -82,7 +86,7 @@ erDiagram
     }
 ```
 
-A user can have zero or more sessions; every session belongs to one user. Both IDs use PostgreSQL UUID columns. Email and token hash are unique. The migration uses `ON DELETE RESTRICT` and `ON UPDATE CASCADE` for the foreign key. Ticket creator deletion is restricted; optional assignee deletion sets assignedToId to null. Both ticket foreign keys cascade updates. There are no queue tables.
+A user can have zero or more sessions; every session belongs to one user. Both IDs use PostgreSQL UUID columns. Email and token hash are unique. The migration uses `ON DELETE RESTRICT` and `ON UPDATE CASCADE` for the foreign key. Ticket creator deletion is restricted; optional assignee deletion sets assignedToId to null. Both ticket foreign keys cascade updates. HU-13 adds AsyncJob as durable job state and transactional dispatch storage (see below).
 
 ## API and session flow
 
@@ -91,6 +95,7 @@ A user can have zero or more sessions; every session belongs to one user. Both I
 | POST | `/api/tickets` | CLIENT or ADMIN; create an OPEN, unassigned ticket owned by the authenticated user |
 | GET | `/api/tickets` | Active account; list all (ADMIN), own (CLIENT), or assigned (TECHNICIAN) tickets |
 | GET | `/api/tickets/:id` | Same visibility; missing or inaccessible tickets return 404 |
+| GET | `/api/tickets/:id/jobs` | Same visibility; safe job tracking array, newest first |
 | PATCH | `/api/tickets/:id` | Same visibility; role/state-based partial updates under approved HU-09 |
 | DELETE | `/api/tickets/:id` | Soft delete: CLIENT owns OPEN ticket; ADMIN any status; TECHNICIAN forbidden |
 | GET | `/api/health` | Public HTTP health |
@@ -124,18 +129,52 @@ HU-09 adds strict partial update validation using the creation field constraints
 
 HU-10 adds nullable Ticket.deletedAt through an additive migration. Normal list, detail, and update queries require deletedAt to be null alongside role visibility. DELETE preserves the row and status, sets deletedAt, and lets Prisma manage updatedAt. Missing, invisible, and already-deleted tickets return 404; visible but forbidden deletions return 403. Conditional writes recheck visibility, deletion state, and the CLIENT OPEN requirement. No restore, trash view, or new architectural layer is added. HU-10 is tested and user-approved; EP-02 backend ticket CRUD is complete.
 
-## HU-11 assignment flow and failure boundary
+## HU-11/HU-12 processing extended by HU-13 (user-approved)
 
-`src/jobs/assignment-queue.js` publishes confirmed persistent messages containing only ticketId; priority properties are LOW=1, MEDIUM=2, HIGH=3. The separate `src/workers/assignment.worker.js` consumes with prefetch 1 and manual acknowledgements. `src/jobs/assignment.js` queries active technicians, counts non-deleted OPEN/IN_PROGRESS work, breaks load ties by ascending ID and conditionally updates an OPEN, non-deleted, unassigned ticket. No schema change or status transition occurs. Duplicate/stale deliveries are no-ops. Concurrent workers cannot overwrite an assignment, but selection for different tickets uses workload snapshots rather than global serialization.
+Assignment policy and four notification recipients/templates remain unchanged. The API stores AsyncJob rows alongside committed ticket events. The assignment worker atomically writes the conditional assignment, its notification job and assignment-job completion. Notification payloads retain event-time snapshots privately in PostgreSQL. Existing queues retain their names/options; new persistent envelopes contain jobId, attempt generation and ticketId. LOW/MEDIUM/HIGH assignment priorities remain 1/2/3.
 
-Expected no-ops and no-technician outcomes are acknowledged. Unexpected failures are logged and nacked without requeue (discarded, no automatic retries). Broker disconnection stops the worker; restart manually. API publish failures after persistence return 503 with ticketId rather than falsely claiming success; the original ticket remains available. `scripts/publish-assignment.js` provides manual recovery using current database priority. Publisher confirmation uncertainty can produce harmless duplicates. A crash between commit and publish is not atomic and requires manual recovery; no outbox, distributed transaction, generic job storage or HU-13 retry framework is introduced. Priority orders pending messages only; no strict global ordering under concurrency is promised. See backend README for startup and recovery.
+`src/jobs/async-jobs.js` implements unique event creation, outbox dispatch, conditional claims, bounded attempts, safe results/errors and stale recovery. `src/jobs/job-queue.js` publishes confirmed persistent envelopes and declares durable classic TTL/dead-letter retry queues (5/15 seconds). Workers use prefetch 1/manual acknowledgements. `scripts/dispatch-jobs.js` is a repeatable one-shot recovery/dispatch command, optionally invoked every minute by the OS scheduler. No new service/dependency is introduced. Existing low-level HU-11/HU-12 helpers remain for compatibility; application producers and workers use the tracked path.
 
-The worker consumes only RabbitMQ deliveries; it does not scan for unassigned tickets. Skip logs include the ticket ID and one fixed reason: `not-found`, `soft-deleted`, `already-assigned`, `not-open`, or `eligibility-changed` when the conditional write no longer matches. No ticket content or user details are logged. HU-11 is tested and user-approved.
+```mermaid
+flowchart LR
+    API -->|transaction: ticket + job| DB[(PostgreSQL)]
+    D[One-shot dispatcher] -->|recover claims / pending publications| DB
+    DB -->|unpublished jobs| D
+    D -->|confirmed persistent envelope| Q[RabbitMQ work queues]
+    Q --> W[Assignment / notification worker]
+    W -->|claim + fenced processing transaction| DB
+    W -->|notification only| SMTP[Gmail SMTP]
+    W -->|on transient error: pending retry| DB
+    D --> R[5s / 15s TTL retry queues]
+    R -->|dead letter| Q
+```
 
-## HU-12 email notification boundary (user-approved)
+AsyncJob's unique eventKey is ticket ID plus assignment type or notification event; approved terminal workflows permit each event once. Notification jobs persist a minimal private JSON snapshot. Job status is independent of ticket status. Public job API selects only safe tracking fields and applies existing non-deleted ticket visibility, newest first. See the [backend README](../backend/README.md) for the endpoint and operational commands.
 
-After database commit, creation and actual RESOLVED/CLOSED transitions publish confirmed persistent snapshots to the notification queue. Creation still attempts assignment publication when notification publication fails. Publication failure returns HTTP 503 with the persisted ticket ID; the database operation is not reversed. The assignment worker publishes TICKET_ASSIGNED only after its conditional write succeeds, using the selected technician and ticket snapshot. Failure to publish this notification is logged without reversing assignment or replaying it. Duplicate assignments and rejected/no-op HTTP changes publish nothing.
+```mermaid
+erDiagram
+    Ticket ||--o{ AsyncJob : tracks
+    AsyncJob {
+        String id PK "UUID"
+        String ticketId FK "UUID; cascade on physical ticket deletion"
+        JobType type "TICKET_ASSIGNMENT, EMAIL_NOTIFICATION"
+        String event "nullable"
+        String eventKey UK
+        Json payload "private snapshot"
+        JobStatus status "PENDING, PROCESSING, COMPLETED, FAILED"
+        JobResult result "nullable SUCCESS, SKIPPED"
+        Int attempts "default 0"
+        Int maxAttempts "default 3"
+        String lastError "nullable safe failure/skip reason"
+        DateTime availableAt
+        DateTime publishedAt "nullable"
+        DateTime claimedAt "nullable"
+        String claimToken "nullable UUID"
+        DateTime createdAt
+        DateTime updatedAt
+    }
+```
 
-The notification worker alone configures Nodemailer from SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_APP_PASSWORD/EMAIL_FROM. Gmail port 465 uses TLS; 587 requires STARTTLS. HTML/text templates include only ticket ID, title, translated priority/status. Recipient selection uses creator ID for creation/resolution/closure and assignee ID for assignment. RabbitMQ carries recipient email, not full user records or descriptions. Each queue can be named through NOTIFICATION_QUEUE/ASSIGNMENT_QUEUE for test isolation.
+Claims commit before work, incrementing attempts. Processing locks the row and verifies its token; assignment business effects and completion commit together. Retry state commits before publishing; envelopes contain the previous attempt count, preventing stale deliveries from consuming a later retry. Acknowledgements follow persisted outcomes. Recovery reopens claims after 120 seconds (or fails an exhausted claim) and permits republishing PENDING jobs after five minutes. An active row lock prevents stale recovery from overlapping the processing transaction. At most 100 pending jobs are dispatched per invocation.
 
-One SMTP attempt per delivery, manual ack after acceptance, and nack without requeue on invalid messages or send failures match HU-11's bounded handling. SMTP errors are sanitized; logs identify event/ticket and safe category/status. No persistent deduplication, retry framework, job API, schema change or outbox is introduced. Redelivery after SMTP acceptance can duplicate mail; commit/publish gaps and terminal rejection can lose it. SMTP acceptance is not inbox delivery. Workers require restart after broker disconnect. See backend README for configuration, manual Gmail verification and recovery limitations.
+There is no distributed transaction with RabbitMQ or SMTP. Confirmation/database gaps cause safe duplicate envelopes. SMTP acceptance before database completion can duplicate mail; SUCCESS means SMTP acceptance only. Recovery needs repeated command execution and manual worker restart after broker disconnect. Classic queue dead-lettering/storage failures can lose messages; pending republishing mitigates delivery loss while database state survives. SMTP processing holds a database transaction for up to 60 seconds. No exactly-once email, historical backfill, global job API or frontend is implemented. Legacy queued messages are adopted without purging; old and new workers must not run together. Full operational boundaries are documented in the README and HU-13 implementation record.

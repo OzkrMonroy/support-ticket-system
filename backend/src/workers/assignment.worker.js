@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { openAssignmentChannel, assignmentQueue } from '../jobs/assignment-queue.js';
-import { handleAssignment } from '../jobs/assignment.js';
+import { handleJob } from '../jobs/async-jobs.js';
 
 const prisma = new PrismaClient();
 try {
@@ -13,7 +13,7 @@ try {
   });
   await channel.prefetch(1);
   await channel.consume(assignmentQueue, (message) => {
-    handleAssignment(channel, message, prisma).catch(() => {
+    handleJob(channel, message, prisma, 'TICKET_ASSIGNMENT').catch(() => {
       console.error('Assignment consumer unavailable; closing connection.');
       void connection.close().catch(() => {});
     });
